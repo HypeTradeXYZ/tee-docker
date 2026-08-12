@@ -73,6 +73,7 @@ describe('wallet ledger serialization', () => {
       releaseLedger = resolve;
     });
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => {
         mutations += 1;
@@ -170,6 +171,7 @@ describe('wallet ledger serialization', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -181,7 +183,7 @@ describe('wallet ledger serialization', () => {
     );
     const service = new AccountsService(registry, state);
     const initial = await registry.create(tenant, 'desk-a', 'password', ['write']);
-    initial.session.accounts.set('vault', Date.now() + 60_000);
+    initial.session.accounts.set('vault', { state: 'live', expiresAt: Date.now() + 60_000 });
 
     await expect(
       registry.withSession(initial.session, () =>
@@ -194,7 +196,7 @@ describe('wallet ledger serialization', () => {
 
     const reopened = await registry.create(tenant, 'desk-a', 'password', ['write']);
     expect(draft.tenants.acme.walletTotal).toBe(1);
-    reopened.session.accounts.set('vault', Date.now() + 60_000);
+    reopened.session.accounts.set('vault', { state: 'live', expiresAt: Date.now() + 60_000 });
     await registry.withSession(reopened.session, () =>
       service.importPrivateKey(reopened.session, tenant, 'vault', 'key-two'),
     );
@@ -235,6 +237,7 @@ describe('wallet ledger serialization', () => {
     };
     let mutations = 0;
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => {
         mutations += 1;
@@ -299,6 +302,7 @@ describe('wallet ledger serialization', () => {
     };
     let failAdmission = false;
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => {
         if (failAdmission) throw new Error('admission persistence probe');
@@ -373,6 +377,7 @@ describe('wallet ledger serialization', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -450,6 +455,7 @@ describe('wallet ledger serialization', () => {
         },
       };
       const state = {
+        close: async () => undefined,
         tenant: () => draft.tenants.acme,
         mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
       } as unknown as ServiceStateService;
@@ -461,7 +467,7 @@ describe('wallet ledger serialization', () => {
       );
       const service = new AccountsService(registry, state);
       const initial = await registry.create(tenant, 'desk-a', 'password', ['write']);
-      initial.session.accounts.set('vault', Date.now() + 60_000);
+      initial.session.accounts.set('vault', { state: 'live', expiresAt: Date.now() + 60_000 });
 
       await expect(
         registry.withSession<unknown>(initial.session, async () => {

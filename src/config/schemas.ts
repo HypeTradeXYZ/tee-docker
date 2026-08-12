@@ -56,13 +56,14 @@ export const ErrorMappingSchema = z.object({
   status: z.number().int().min(100).max(599),
   code: z.string().min(1),
   exposeDetails: z.boolean().optional(),
-});
+  exposeMessage: z.boolean().optional(),
+}).strict();
 
 export const ErrorsConfigSchema = z.object({
   defaultStatus: z.number().int().min(100).max(599).default(500),
   defaultExposeDetails: z.boolean().default(false),
   mappings: z.record(z.string(), ErrorMappingSchema),
-});
+}).strict();
 
 export const WorkspaceStateSchema = z.object({
   slug: z.string().regex(SLUG_RE),

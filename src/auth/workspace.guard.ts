@@ -1,4 +1,11 @@
-import { CanActivate, ExecutionContext, Injectable, createParamDecorator } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  SetMetadata,
+  createParamDecorator,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { AppRequest } from '../common/http';
 import { TeeError } from '../common/tee-error';
 import { OperatorConfigService } from '../config/operator-config.service';
@@ -6,6 +13,9 @@ import type { Tenant } from '../config/schemas';
 import type { Session } from '../session/session.registry';
 import { SessionRegistry } from '../session/session.registry';
 import { JwtService } from './jwt.service';
+
+const SKIP_IDLE_TOUCH = 'tee:skip-workspace-idle-touch';
+export const SkipWorkspaceIdleTouch = () => SetMetadata(SKIP_IDLE_TOUCH, true);
 
 /**
  * The workspace tier. The JWT names a session; the session holds the unlocked
@@ -20,6 +30,7 @@ export class WorkspaceGuard implements CanActivate {
     private readonly jwt: JwtService,
     private readonly sessions: SessionRegistry,
     private readonly tenants: OperatorConfigService,
+    private readonly reflector: Reflector,
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -44,6 +55,10 @@ export class WorkspaceGuard implements CanActivate {
       claims.ws,
       claims.scp,
       tenant.ttl.workspaceIdleSec,
+      this.reflector.getAllAndOverride<boolean | undefined>(SKIP_IDLE_TOUCH, [
+        context.getHandler(),
+        context.getClass(),
+      ]) !== true,
     );
     if (!access) {
       // Covers lock, idle expiry, absolute expiry, and a restart that dropped

@@ -1,10 +1,17 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
-import { CurrentSession, WorkspaceGuard } from '../auth/workspace.guard';
+import {
+  CurrentSession,
+  CurrentTokenTenant,
+  SkipWorkspaceIdleTouch,
+  WorkspaceGuard,
+} from '../auth/workspace.guard';
+import { AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 import { AllowAnyWorkspaceScope, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
+import type { Tenant } from '../config/schemas';
 
 const UnlockBody = z.object({ accountPassword: z.string().min(1) });
 
@@ -34,7 +41,10 @@ interface AccountView {
 @Controller()
 @UseGuards(WorkspaceGuard, ScopesGuard)
 export class WorkspaceController {
-  constructor(private readonly sessions: SessionRegistry) {}
+  constructor(
+    private readonly sessions: SessionRegistry,
+    private readonly accountUnlocks: AccountUnlockLimiter,
+  ) {}
 
   @Get('workspace')
   @RequireScopes('read')
@@ -104,8 +114,10 @@ export class WorkspaceController {
   @Post('accounts/:slug/unlock')
   @HttpCode(204)
   @AllowAnyWorkspaceScope()
+  @SkipWorkspaceIdleTouch()
   async unlock(
     @CurrentSession() session: Session,
+    @CurrentTokenTenant() tenant: Tenant,
     @Param('slug') slug: string,
     @Body() body: unknown,
   ): Promise<void> {
@@ -117,6 +129,8 @@ export class WorkspaceController {
       session,
       assertValidAccountSlug(slug),
       parsed.data.accountPassword,
+      this.accountUnlocks,
+      tenant.ttl.workspaceIdleSec,
     );
   }
 

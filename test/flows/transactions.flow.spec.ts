@@ -149,20 +149,34 @@ describe('transactions-flow', () => {
   });
 
   describe('balances', () => {
-    it('refuses when the network has no configured endpoint', async () => {
+    it('reports the unavailable capability before address or RPC lookup', async () => {
       const res = await http()
         .get(`/v1/addresses/${evmAddress}/balances?network=base`)
         .set(bearer());
 
-      expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('rpc_not_configured');
+      expect(res.status).toBe(501);
+      expect(res.body.error).toMatchObject({
+        code: 'not_implemented',
+        message: 'Balance lookup is not available in this release.',
+      });
+      expect(res.headers['x-rpc-source']).toBeUndefined();
     });
 
-    it('404s an unknown address', async () => {
-      const res = await http()
-        .get('/v1/addresses/0x000000000000000000000000000000000000dEaD/balances')
-        .set(bearer());
-      expect(res.status).toBe(404);
+    it.each([
+      `/v1/addresses/${evmAddress}/balances`,
+      '/v1/addresses/0x000000000000000000000000000000000000dEaD/balances',
+      '/v1/addresses/no-such-address/balances?network=no-such-network',
+    ])('returns the same capability response for %s', async (path) => {
+      const res = await http().get(path).set(bearer()).expect(501);
+      expect(res.body.error).toMatchObject({
+        code: 'not_implemented',
+        message: 'Balance lookup is not available in this release.',
+      });
+      expect(res.headers['x-rpc-source']).toBeUndefined();
+    });
+
+    it('still enforces bearer authentication before capability reporting', async () => {
+      await http().get(`/v1/addresses/${evmAddress}/balances`).expect(401);
     });
   });
 

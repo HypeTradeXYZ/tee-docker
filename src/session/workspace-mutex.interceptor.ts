@@ -9,6 +9,7 @@ import { Reflector } from '@nestjs/core';
 import { from, lastValueFrom, type Observable } from 'rxjs';
 import type { AppRequest } from '../common/http';
 import { SessionRegistry } from './session.registry';
+import { RPC_OPERATION, RpcOperationService } from './rpc-operation.service';
 
 const SKIP_WORKSPACE_MUTEX = 'tee:skip-workspace-mutex';
 
@@ -21,6 +22,7 @@ export class WorkspaceMutexInterceptor implements NestInterceptor {
   constructor(
     private readonly sessions: SessionRegistry,
     private readonly reflector: Reflector,
+    private readonly rpcOperations: RpcOperationService,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -31,6 +33,13 @@ export class WorkspaceMutexInterceptor implements NestInterceptor {
     const session = context.switchToHttp().getRequest<AppRequest>().session;
     if (!session || skip === true) return next.handle();
 
-    return from(this.sessions.withSession(session, () => lastValueFrom(next.handle())));
+    const invoke = () => this.sessions.withSession(session, () => lastValueFrom(next.handle()));
+    const isRpc = this.reflector.getAllAndOverride<boolean | undefined>(RPC_OPERATION, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    return from(
+      isRpc === true ? this.rpcOperations.withPermit(session.tenantId, invoke) : invoke(),
+    );
   }
 }

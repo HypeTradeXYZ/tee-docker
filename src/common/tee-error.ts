@@ -25,6 +25,9 @@ export const TEE_ERROR_CODES = [
   'TEE_SESSION_CAPACITY',
   'TEE_RPC_UNSAFE',
   'TEE_RPC_UNREACHABLE',
+  'TEE_ACCOUNT_UNLOCK_RATE',
+  'TEE_RPC_CAPACITY',
+  'TEE_BALANCES_UNAVAILABLE',
 ] as const;
 
 export type TeeErrorCode = (typeof TEE_ERROR_CODES)[number];

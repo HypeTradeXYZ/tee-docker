@@ -35,13 +35,15 @@ export class AccountsService {
         // hasOwnPassword is passed explicitly and always false. The wative-core
         // default is TRUE, so omitting it would silently give every account its
         // own password and break the session model. See DESIGN.md §3.
-        return session.handle.accounts.create(
+        const account = await session.handle.accounts.create(
           input.displayName,
           session.password,
           secret,
           input.defaultNetwork,
           { kind: input.kind, hasOwnPassword: false },
         );
+        this.sessions.recordAccountExposure(session, String(account.slug));
+        return account;
       },
     );
   }
@@ -50,6 +52,7 @@ export class AccountsService {
     await this.mutateWalletState(session, async () => {
       const account = await this.sessions.requireAccount(session, slug);
       await account.drop();
+      this.sessions.clearAccountCustody(session, slug);
     });
   }
 

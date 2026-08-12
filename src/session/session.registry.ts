@@ -13,12 +13,20 @@ import { workspacePath } from '../workspaces/workspace-paths';
 import { AsyncMutex, KeyedMutex } from './async-mutex';
 import { SESSION_CAPACITY, type SessionCapacity } from './session-capacity';
 import { RpcBoundaryService } from './rpc-boundary.service';
+import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 
 export interface TokenLease {
   readonly jti: string;
   readonly scopes: readonly string[];
   expiresAt: number;
 }
+
+export type AccountCustody =
+  | { readonly state: 'live'; readonly expiresAt: number }
+  | { readonly state: 'locked'; readonly reason: 'manual' | 'expired' };
+
+export const ACCOUNT_CUSTODY_CLOCK = Symbol('ACCOUNT_CUSTODY_CLOCK');
+export type AccountCustodyClock = () => number;
 
 export interface Session {
   readonly sid: string;
@@ -35,8 +43,10 @@ export interface Session {
   readonly storageIdentity: WorkspaceStorageIdentity;
   idleExpiresAt: number;
   unusable: boolean;
-  /** account slug -> absolute expiry. Never slides. */
-  readonly accounts: Map<string, number>;
+  /** Account unlock episodes and deny tombstones. Live deadlines never slide. */
+  readonly accounts: Map<string, AccountCustody>;
+  /** Explicit-unlock failure state, shared by every lease on this session. */
+  readonly unlockFailures: Map<string, AccountUnlockFailure>;
 }
 
 export interface SessionGrant {
@@ -66,9 +76,11 @@ export class SessionRegistry implements OnApplicationShutdown {
   readonly #sessions = new Map<string, Session>();
   readonly #workspaces = new Map<string, WorkspaceEntry>();
   readonly #lifecycle = new KeyedMutex();
+  readonly #lifecycleJobs = new Set<Promise<unknown>>();
   #sweeper: NodeJS.Timeout | null = null;
   #sweepInFlight: Promise<void> | null = null;
   #shuttingDown = false;
+  readonly #now: AccountCustodyClock;
 
   constructor(
     @Inject(PATHS) private readonly paths: Paths,
@@ -76,7 +88,9 @@ export class SessionRegistry implements OnApplicationShutdown {
     @Inject(SESSION_CAPACITY) private readonly capacity: SessionCapacity,
     private readonly storage: WorkspaceStorageService,
     @Optional() private readonly rpcBoundary?: RpcBoundaryService,
+    @Optional() @Inject(ACCOUNT_CUSTODY_CLOCK) clock?: AccountCustodyClock,
   ) {
+    this.#now = clock ?? Date.now;
     this.#sweeper = setInterval(() => {
       void this.runSweep().catch((err) => {
         this.logger.error(`session sweep failed: ${String(err)}`);
@@ -98,6 +112,17 @@ export class SessionRegistry implements OnApplicationShutdown {
         failures.push(err);
       }
     }
+    // Provision/delete callbacks may be inside a lifecycle gate without a
+    // published workspace entry. Drain all admitted jobs before snapshotting
+    // handles or releasing the outer state-directory lock.
+    while (this.#lifecycleJobs.size > 0) {
+      const jobs = await Promise.allSettled([...this.#lifecycleJobs]);
+      failures.push(
+        ...jobs
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason),
+      );
+    }
     // Acquiring every lifecycle key also waits for opens already in flight.
     const results = await Promise.allSettled(
       [...this.#workspaces.keys()].map((key) =>
@@ -115,6 +140,9 @@ export class SessionRegistry implements OnApplicationShutdown {
     if (failures.length > 0) {
       throw new AggregateError(failures, `failed to lock ${failures.length} workspace session(s)`);
     }
+    // The quota ledger's lifetime process lock is the outermost custody lock.
+    // Release it only after every decrypted workspace and queued sweep drained.
+    await this.state.close();
   }
 
   /** Authenticate, open/reuse the singleton, and create one independently revocable token lease. */
@@ -128,7 +156,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     // Validate the authenticated path components at the registry boundary as
     // well as in the storage service.
     workspacePath(this.paths.dataRoot, tenant.id, workspaceSlug);
-    return this.#lifecycle.runExclusive(key, async () => {
+    return this.trackLifecycleJob(this.#lifecycle.runExclusive(key, async () => {
       if (this.#shuttingDown) throw expired('application is shutting down');
 
       let entry = this.#workspaces.get(key);
@@ -184,7 +212,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       try {
         let session: Session | undefined;
         await this.storage.openExisting(tenant.id, workspaceSlug, password, (handle, identity) => {
-          const now = Date.now();
+          const now = this.#now();
           session = {
             sid: randomUUID(),
             tenantId: tenant.id,
@@ -200,6 +228,7 @@ export class SessionRegistry implements OnApplicationShutdown {
             storageIdentity: identity,
             unusable: false,
             accounts: new Map(),
+            unlockFailures: new Map(),
           };
           // Attach the returned handle before any fallible post-open work. If
           // storage validation, reconciliation, or shutdown cleanup fails,
@@ -242,7 +271,7 @@ export class SessionRegistry implements OnApplicationShutdown {
         if (this.#workspaces.get(key) === entry) this.#workspaces.delete(key);
         throw err;
       }
-    });
+    }));
   }
 
   /**
@@ -255,13 +284,13 @@ export class SessionRegistry implements OnApplicationShutdown {
     provision: () => Promise<T>,
   ): Promise<T> {
     const key = workspaceKey(tenantId, workspaceSlug);
-    return this.#lifecycle.runExclusive(key, async () => {
+    return this.trackLifecycleJob(this.#lifecycle.runExclusive(key, async () => {
       if (this.#shuttingDown) throw expired('application is shutting down');
       if (this.#workspaces.has(key)) {
         throw new TeeError('TEE_WORKSPACE_IN_USE', `workspace "${workspaceSlug}" is in use`);
       }
       return provision();
-    });
+    }));
   }
 
   /**
@@ -309,6 +338,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     workspaceSlug: string,
     scopes: readonly string[],
     idleSec: number,
+    touchIdle = true,
   ): { session: Session; lease: TokenLease } | null {
     const session = this.#sessions.get(sid);
     if (
@@ -320,7 +350,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       return null;
     }
 
-    const now = Date.now();
+    const now = this.#now();
     if (this.sessionExpired(session, now)) {
       this.destroyInBackground(sid, 'expired session');
       return null;
@@ -334,7 +364,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       return null;
     }
 
-    this.touch(session, idleSec, now);
+    if (touchIdle) this.touch(session, idleSec, now);
     return { session, lease };
   }
 
@@ -346,10 +376,10 @@ export class SessionRegistry implements OnApplicationShutdown {
         throw expired('no session');
       }
       const lease = session.leases.get(jti);
-      if (!lease || lease.expiresAt <= Date.now()) throw expired('no lease');
+      if (!lease || lease.expiresAt <= this.#now()) throw expired('no lease');
 
       this.touch(session, idleSec);
-      const exp = tokenExpiry(session);
+      const exp = tokenExpiry(session, this.#now());
       lease.expiresAt = exp * 1000;
       return { session, lease, exp };
     });
@@ -385,7 +415,12 @@ export class SessionRegistry implements OnApplicationShutdown {
   async withSession<T>(session: Session, fn: () => T | Promise<T>): Promise<T> {
     try {
       return await session.mutex.runExclusive(async () => {
-        if (this.#sessions.get(session.sid) !== session || session.unusable) {
+        if (
+          this.#sessions.get(session.sid) !== session
+          || session.unusable
+          || this.sessionExpired(session, this.#now())
+        ) {
+          if (this.#sessions.get(session.sid) === session) session.unusable = true;
           throw expired('session is closing');
         }
         return fn();
@@ -399,29 +434,96 @@ export class SessionRegistry implements OnApplicationShutdown {
     session.unusable = true;
   }
 
+  private trackLifecycleJob<T>(job: Promise<T>): Promise<T> {
+    this.#lifecycleJobs.add(job);
+    void job.finally(() => this.#lifecycleJobs.delete(job)).catch(() => undefined);
+    return job;
+  }
+
   async requireAccount(session: Session, slug: string): Promise<Account> {
     const account = this.findAccount(session, slug);
-    if (!account.locked && this.accountLive(session, slug)) return account;
-    if (account.hasOwnPassword) {
-      throw new TeeError('TEE_ACCOUNT_LOCKED', `account "${slug}" needs its own password`, {
-        account: slug,
-      });
+    const now = this.#now();
+    const custody = session.accounts.get(slug);
+    if (custody?.state === 'live') {
+      if (now < custody.expiresAt && !account.locked) return account;
+      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+      throw accountLocked(slug);
     }
-    await account.tryUnlock();
-    session.accounts.set(slug, this.accountExpiry(session));
+    if (custody?.state === 'locked') throw accountLocked(slug);
+    if (account.hasOwnPassword) {
+      throw accountLocked(slug);
+    }
+    const wasLocked = account.locked;
+    try {
+      if (account.locked) await account.tryUnlock();
+    } catch (err) {
+      this.failClosedAccountUnlock(session, slug, account, wasLocked);
+      throw err;
+    }
+    this.recordAccountExposure(session, slug, now);
     return account;
   }
 
-  async unlockAccount(session: Session, slug: string, password: string): Promise<void> {
+  async unlockAccount(
+    session: Session,
+    slug: string,
+    password: string,
+    limiter: AccountUnlockLimiter,
+    idleSec: number,
+  ): Promise<void> {
     const account = this.findAccount(session, slug);
-    await account.tryUnlock(password);
-    session.accounts.set(slug, this.accountExpiry(session));
+    const before = session.accounts.get(slug);
+    const liveDeadline = before?.state === 'live' ? before.expiresAt : undefined;
+    const wasLocked = account.locked;
+    await limiter.verify(session, slug, () => {
+      this.touch(session, idleSec);
+      return Promise.resolve(account.tryUnlock(password)).catch((err) => {
+        this.failClosedAccountUnlock(session, slug, account, wasLocked, before);
+        throw err;
+      });
+    });
+    const now = this.#now();
+    if (this.sessionExpired(session, now)) {
+      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+      session.unusable = true;
+      throw expired('session expired during account unlock');
+    }
+    if (liveDeadline !== undefined) {
+      if (now >= liveDeadline) {
+        session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+        throw accountLocked(slug);
+      }
+      // Re-verifying an already-live account does not renew bearer custody.
+      session.accounts.set(slug, { state: 'live', expiresAt: liveDeadline });
+      return;
+    }
+    this.recordAccountExposure(session, slug, now);
   }
 
   lockAccount(session: Session, slug: string): void {
     const account = this.findAccount(session, slug);
-    account.lock();
+    session.accounts.set(slug, { state: 'locked', reason: 'manual' });
+    try {
+      account.lock();
+    } catch (err) {
+      session.unusable = true;
+      throw err;
+    }
+  }
+
+  /** Start custody for an account that core has just returned unlocked. */
+  recordAccountExposure(session: Session, slug: string, now = this.#now()): void {
+    if (this.sessionExpired(session, now)) {
+      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+      session.unusable = true;
+      throw expired('account exposure began after session expiry');
+    }
+    session.accounts.set(slug, { state: 'live', expiresAt: this.accountExpiry(session, now) });
+  }
+
+  clearAccountCustody(session: Session, slug: string): void {
     session.accounts.delete(slug);
+    session.unlockFailures.delete(slug);
   }
 
   /** Authoritatively recount one singleton handle and persist its tenant total. */
@@ -468,7 +570,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     this.assertLeaseCapacity(session);
     let jti: string;
     do jti = randomUUID(); while (session.leases.has(jti));
-    const exp = tokenExpiry(session);
+    const exp = tokenExpiry(session, this.#now());
     const lease: TokenLease = { jti, scopes: [...scopes], expiresAt: exp * 1000 };
     session.leases.set(jti, lease);
     return { session, lease, exp };
@@ -491,7 +593,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
   }
 
-  private entryInUse(entry: WorkspaceEntry, now = Date.now()): boolean {
+  private entryInUse(entry: WorkspaceEntry, now = this.#now()): boolean {
     if (entry.state !== 'active' || !entry.session) return true;
     const session = entry.session;
     if (this.sessionExpired(session, now) || session.unusable) return false;
@@ -522,17 +624,32 @@ export class SessionRegistry implements OnApplicationShutdown {
     return account;
   }
 
-  private accountLive(session: Session, slug: string): boolean {
-    const expiry = session.accounts.get(slug);
-    return expiry !== undefined && Date.now() < expiry;
+  private accountExpiry(session: Session, now: number): number {
+    return Math.min(now + session.accountTtlSec * 1000, session.absoluteExpiresAt);
   }
 
-  private accountExpiry(session: Session): number {
-    return Math.min(Date.now() + session.accountTtlSec * 1000, session.absoluteExpiresAt);
+  private failClosedAccountUnlock(
+    session: Session,
+    slug: string,
+    account: Account,
+    wasLocked: boolean,
+    restore?: AccountCustody,
+  ): void {
+    if (restore) session.accounts.set(slug, restore);
+    else session.accounts.delete(slug);
+    // Some providers can throw after changing the live object. If that
+    // happened, zeroize it now; an unsuccessful cleanup retires the session.
+    if (wasLocked && !account.locked) {
+      try {
+        account.lock();
+      } catch {
+        session.unusable = true;
+      }
+    }
   }
 
   private async sweep(): Promise<void> {
-    const now = Date.now();
+    const now = this.#now();
     const failures: unknown[] = [];
     for (const session of [...this.#sessions.values()]) {
       try {
@@ -551,14 +668,14 @@ export class SessionRegistry implements OnApplicationShutdown {
 
         await session.mutex.runExclusive(() => {
           if (this.#sessions.get(session.sid) !== session || session.unusable) return;
-          for (const [slug, expiry] of session.accounts) {
-            if (now < expiry) continue;
+          for (const [slug, custody] of session.accounts) {
+            if (custody.state !== 'live' || now < custody.expiresAt) continue;
+            session.accounts.set(slug, { state: 'locked', reason: 'expired' });
             try {
               session.handle.accounts.bySlug(asSlug(slug))?.lock();
             } catch {
               /* the account may already be gone; the map entry is what matters */
             }
-            session.accounts.delete(slug);
           }
         });
       } catch (err) {
@@ -617,9 +734,9 @@ function digestPassword(password: string): Buffer {
   return createHash('sha256').update(password, 'utf8').digest();
 }
 
-function tokenExpiry(session: Session): number {
+function tokenExpiry(session: Session, now = Date.now()): number {
   const exp = Math.floor(Math.min(session.idleExpiresAt, session.absoluteExpiresAt) / 1000);
-  if (exp <= Math.floor(Date.now() / 1000)) throw expired('no token lifetime remains');
+  if (exp <= Math.floor(now / 1000)) throw expired('no token lifetime remains');
   return exp;
 }
 
@@ -637,6 +754,12 @@ function capacityError(scope: 'workspace' | 'tenant' | 'process', limit: number)
 
 function expired(reason: string): TeeError {
   return new TeeError('TEE_SESSION_EXPIRED', 'session is not valid', { reason });
+}
+
+function accountLocked(slug: string): TeeError {
+  return new TeeError('TEE_ACCOUNT_LOCKED', `account "${slug}" requires explicit unlock`, {
+    account: slug,
+  });
 }
 
 /** wative-core brands slugs at the type level; validation already happened. */

@@ -37,6 +37,41 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
 }
 
 describe('SessionRegistry close failure', () => {
+  it('drains a directly in-flight provision before releasing state ownership', async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const provisionEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const provisionBarrier = new Promise<void>((resolve) => { release = resolve; });
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const state = {
+      close: stateClose,
+      tenant: () => ({ walletTotal: 0, workspaces: [] }),
+      mutate: async <T>(fn: (value: { tenants: Record<string, never> }) => T): Promise<T> =>
+        fn({ tenants: {} }),
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-provision-shutdown-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      testStorage,
+    );
+
+    const provision = registry.provisionWorkspace('acme', 'desk-a', async () => {
+      entered();
+      await provisionBarrier;
+      return 'created';
+    });
+    await provisionEntered;
+    const shutdown = registry.onApplicationShutdown();
+    await Promise.resolve();
+    expect(stateClose).not.toHaveBeenCalled();
+
+    release();
+    await expect(provision).resolves.toBe('created');
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(stateClose).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a tombstone and retries the old lock before opening a successor', async () => {
     const firstLock = jest
       .fn<Promise<void>, []>()
@@ -60,7 +95,9 @@ describe('SessionRegistry close failure', () => {
         },
       },
     };
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     const state = {
+      close: stateClose,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -97,6 +134,7 @@ describe('SessionRegistry close failure', () => {
 
     await registry.onApplicationShutdown();
     expect(secondLock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
     open.mockRestore();
   });
 
@@ -124,7 +162,9 @@ describe('SessionRegistry close failure', () => {
       },
     };
     let failReconcile = true;
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     const state = {
+      close: stateClose,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => {
         if (failReconcile) {
@@ -161,11 +201,13 @@ describe('SessionRegistry close failure', () => {
     await registry.create(tenant, 'desk-a', 'password', ['read']);
     expect(firstLock).toHaveBeenCalledTimes(2);
     expect(open).toHaveBeenCalledTimes(2);
+    expect(stateClose).not.toHaveBeenCalled();
     expect(registry.size).toBe(1);
     expect(registry.workspaceCount).toBe(1);
 
     await registry.onApplicationShutdown();
     expect(secondLock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
     open.mockRestore();
   });
 
@@ -191,7 +233,9 @@ describe('SessionRegistry close failure', () => {
         },
       },
     };
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     const state = {
+      close: stateClose,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -222,6 +266,7 @@ describe('SessionRegistry close failure', () => {
     expect(successfulLock).toHaveBeenCalledTimes(1);
     expect(registry.size).toBe(0);
     expect(registry.workspaceCount).toBe(1);
+    expect(stateClose).not.toHaveBeenCalled();
     await expect(registry.create(tenant, 'desk-b', 'password', ['read'])).rejects.toMatchObject({
       code: 'TEE_SESSION_EXPIRED',
     });
@@ -253,6 +298,7 @@ describe('SessionRegistry close failure', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -327,6 +373,7 @@ describe('SessionRegistry close failure', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -349,7 +396,7 @@ describe('SessionRegistry close failure', () => {
     const first = await registry.create(tenant, 'desk-a', 'password', ['read']);
     const second = await registry.create(tenant, 'desk-b', 'password', ['read']);
     first.session.idleExpiresAt = 0;
-    second.session.accounts.set('vault', 0);
+    second.session.accounts.set('vault', { state: 'live', expiresAt: 0 });
 
     const sweeping = (registry as unknown as { runSweep(): Promise<void> }).runSweep();
     await lockEntered;
@@ -401,6 +448,7 @@ describe('SessionRegistry close failure', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -455,6 +503,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -674,6 +723,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;
@@ -736,6 +786,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
       },
     };
     const state = {
+      close: async () => undefined,
       tenant: () => draft.tenants.acme,
       mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
     } as unknown as ServiceStateService;

@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs';
 import { Injectable, Logger } from '@nestjs/common';
 import { ErrorsConfigSchema, type ErrorMapping, type ErrorsConfig } from './schemas';
 import type { Paths } from './paths';
+import { WATIVE_ERROR_CODES } from '../common/wative-error-codes';
+import { TEE_ERROR_CODES } from '../common/tee-error';
 
 export interface ResolvedError {
   readonly status: number;
   readonly code: string;
   readonly exposeDetails: boolean;
+  readonly exposeMessage: boolean;
   /** True when the library code had no entry in the table. */
   readonly unmapped: boolean;
 }
@@ -25,6 +28,19 @@ export class ErrorMapService {
   readonly #warned = new Set<string>();
 
   constructor(config: ErrorsConfig) {
+    const reviewed = [...WATIVE_ERROR_CODES, ...TEE_ERROR_CODES];
+    const missing = reviewed.filter(
+      (code) => config.mappings[code] === undefined,
+    );
+    if (missing.length > 0) {
+      throw new Error(`error map is missing reviewed codes: ${missing.join(', ')}`);
+    }
+    const extras = Object.keys(config.mappings).filter(
+      (code) => !(reviewed as readonly string[]).includes(code),
+    );
+    if (extras.length > 0) {
+      throw new Error(`error map has unreviewed codes: ${extras.join(', ')}`);
+    }
     this.#config = config;
   }
 
@@ -62,6 +78,7 @@ export class ErrorMapService {
         status: this.#config.defaultStatus,
         code: 'internal_error',
         exposeDetails: false,
+        exposeMessage: false,
         unmapped: true,
       };
     }
@@ -70,6 +87,7 @@ export class ErrorMapService {
       status: mapping.status,
       code: mapping.code,
       exposeDetails: mapping.exposeDetails ?? this.#config.defaultExposeDetails,
+      exposeMessage: mapping.exposeMessage ?? false,
       unmapped: false,
     };
   }

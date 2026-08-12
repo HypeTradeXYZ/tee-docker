@@ -1,7 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
-import type { Address, Transaction } from 'wative-core';
+import {
+  WativeError,
+  type Address,
+  type Transaction,
+  type TransactionTracker,
+} from 'wative-core';
 import { TeeError } from '../common/tee-error';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
@@ -10,6 +15,7 @@ import { requireRpc } from './rpc';
 import { SessionRegistry, type Session } from './session.registry';
 import { RpcBoundaryService } from './rpc-boundary.service';
 import { projectBuiltTransaction } from './transaction-projector';
+import { RpcOperation, RpcOperationService } from './rpc-operation.service';
 
 /** bigint-valued fields arrive as decimal strings — JSON has no bigint. */
 const bigintish = z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]);
@@ -47,10 +53,12 @@ export class TransactionsController {
   constructor(
     private readonly sessions: SessionRegistry,
     private readonly rpcBoundary: RpcBoundaryService,
+    private readonly rpcOperations: RpcOperationService,
   ) {}
 
   @Post('build')
   @HttpCode(200)
+  @RpcOperation()
   async build(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
@@ -59,7 +67,7 @@ export class TransactionsController {
   ): Promise<{ raw: unknown; vm: string; network: string }> {
     const { address, tx } = await this.prepare(session, tenant, body, res);
     return {
-      raw: await projectBuiltTransaction(tx),
+      raw: await this.rpcOperations.run(session, 'transaction', () => projectBuiltTransaction(tx)),
       vm: address.vm,
       network: String(address.network.slug),
     };
@@ -67,6 +75,7 @@ export class TransactionsController {
 
   @Post('simulate')
   @HttpCode(200)
+  @RpcOperation()
   async simulate(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
@@ -74,7 +83,10 @@ export class TransactionsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ success: boolean; error?: string; gasUsed?: string; logs?: readonly string[] }> {
     const { address, tx } = await this.prepare(session, tenant, body, res);
-    const sim = await address.simulateTransaction(tx);
+    const sim = await this.rpcOperations.run(session, 'transaction', () =>
+      address.simulateTransaction(tx),
+    );
+    assertSimulationTransport(sim);
     return {
       success: sim.success,
       ...(sim.error !== undefined ? { error: sim.error } : {}),
@@ -92,6 +104,7 @@ export class TransactionsController {
    */
   @Post('send')
   @HttpCode(202)
+  @RpcOperation()
   async send(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
@@ -99,16 +112,19 @@ export class TransactionsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ hash: string; status: string; network: string }> {
     const { address, tx } = await this.prepare(session, tenant, body, res);
-
-    const signed = address.signTransaction(tx);
-    const tracker = address.sendTransaction(signed);
-    const hash = await tracker.whenSubmitted();
-
-    return { hash, status: tracker.status, network: String(address.network.slug) };
+    return submitTransaction(
+      tx,
+      address,
+      session,
+      this.rpcOperations,
+      this.rpcBoundary,
+      String(address.network.slug),
+    );
   }
 
   /** Stateless status lookup — one RPC call, no stored state. */
   @Get(':hash')
+  @RpcOperation()
   async status(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
@@ -130,7 +146,9 @@ export class TransactionsController {
       ? { jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }
       : { jsonrpc: '2.0', id: 1, method: 'getSignatureStatuses', params: [[hash], { searchTransactionHistory: true }] };
 
-    const raw = await jsonRpc(rpc.url as string, payload);
+    const raw = await this.rpcOperations.run(session, 'read', () =>
+      jsonRpc(rpc.url as string, payload, this.rpcOperations.config.deadlineMs),
+    );
     const result = isEvm
       ? (raw as { result?: { status?: string } | null }).result
       : ((raw as { result?: { value?: unknown[] } }).result?.value?.[0] ?? null);
@@ -210,14 +228,189 @@ export class TransactionsController {
   }
 }
 
-async function jsonRpc(url: string, payload: unknown): Promise<unknown> {
+interface SendAddress {
+  sendTransaction(transaction: Transaction): TransactionTracker;
+}
+
+interface SendOperations {
+  run<T>(
+    session: Session,
+    kind: 'transaction',
+    operation: () => Promise<T>,
+  ): Promise<T>;
+}
+
+interface SendBoundary {
+  abortWorkspace(tenantId: string, workspaceSlug: string): () => void;
+  waitForWorkspaceDrain(tenantId: string, workspaceSlug: string): Promise<void>;
+}
+
+export interface SendView {
+  readonly hash: string;
+  readonly status: 'pending' | 'unknown';
+  readonly network: string;
+}
+
+/**
+ * Capture the offline-signed lookup identifier before submission. A terminal
+ * core `timeout` means the bytes may have left the process, so return 202 with
+ * `unknown` and require a status lookup before retrying. A terminal `failed`
+ * is an explicit endpoint refusal and remains the mapped error.
+ */
+export async function submitTransaction(
+  tx: Transaction,
+  address: SendAddress,
+  session: Session,
+  operations: SendOperations,
+  boundary: SendBoundary,
+  network: string,
+): Promise<SendView> {
+  let signedHash: string | null = null;
+  let tracker: TransactionTracker | undefined;
+  let sendStarted = false;
+  let submissionKnown = false;
+
+  try {
+    return await operations.run(session, 'transaction', async () => {
+      // Transaction.sign() is the awaitable primitive. Address.signTransaction
+      // returns before async signing has populated the canonical hash in 2.4.4.
+      const signed = await tx.sign();
+      signedHash = requireSignedTransactionId(signed);
+      sendStarted = true;
+      tracker = address.sendTransaction(signed);
+      await tracker.whenSubmitted();
+
+      // SVM can resolve the waiter after detecting an unusable acknowledgement;
+      // tracker state, not the returned endpoint value, is authoritative.
+      if (tracker.status === 'timeout') {
+        return { hash: signedHash, status: 'unknown', network };
+      }
+      if (tracker.status === 'failed') {
+        throw new WativeError('TX_SUBMIT_FAILED', 'transaction was refused by the endpoint');
+      }
+
+      submissionKnown = true;
+      try {
+        await stopSubmittedTracker(tracker, boundary, session);
+      } catch {
+        // Never suppress a network-known identifier with an internal cleanup
+        // failure. Retire the singleton after the interceptor releases its
+        // mutex so no failed tracker can overlap later core work.
+        session.unusable = true;
+      }
+      return { hash: signedHash, status: 'pending', network };
+    });
+  } catch (error) {
+    // The H-06 timer may win after validated submission while cleanup drains.
+    // A known lookup identifier always takes precedence over an internal 5xx.
+    if (submissionKnown && signedHash) {
+      return { hash: signedHash, status: 'pending', network };
+    }
+    if (
+      sendStarted &&
+      signedHash &&
+      (tracker === undefined || tracker.status === 'timeout')
+    ) {
+      return { hash: signedHash, status: 'unknown', network };
+    }
+    throw error;
+  }
+}
+
+function requireSignedTransactionId(
+  transaction: Transaction,
+): string {
+  const hash = (transaction as Transaction & { readonly hash?: unknown }).hash;
+  const valid = transaction.vm === 'evm'
+    ? typeof hash === 'string' && /^0x[0-9a-f]{64}$/.test(hash)
+    : transaction.vm === 'svm'
+      ? typeof hash === 'string' && isBase58Bytes(hash, 64)
+      : false;
+  if (!valid) {
+    throw new WativeError('TX_SIGN_FAILED', 'signed transaction has no canonical identifier');
+  }
+  return hash as string;
+}
+
+function isBase58Bytes(value: string, expectedBytes: number): boolean {
+  if (!value || value.length > 96) return false;
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+  let decoded = 0n;
+  for (const character of value) {
+    const digit = alphabet.indexOf(character);
+    if (digit < 0) return false;
+    decoded = decoded * 58n + BigInt(digit);
+  }
+  let bodyBytes = 0;
+  while (decoded > 0n) {
+    bodyBytes += 1;
+    decoded >>= 8n;
+  }
+  let leadingZeroes = 0;
+  while (leadingZeroes < value.length && value[leadingZeroes] === '1') leadingZeroes += 1;
+  return leadingZeroes + bodyBytes === expectedBytes;
+}
+
+/**
+ * A network-known identifier makes it safe to stop background receipt polling.
+ * Block the relay first, abort the tracker, then drain a poll already in flight
+ * before the workspace mutex and tenant permit can be released.
+ */
+export async function stopSubmittedTracker(
+  tracker: Pick<TransactionTracker, 'abort'>,
+  boundary: SendBoundary,
+  session: Pick<Session, 'tenantId' | 'workspaceSlug'>,
+): Promise<void> {
+  const releaseAbortBlock = boundary.abortWorkspace(session.tenantId, session.workspaceSlug);
+  const failures: unknown[] = [];
+  try {
+    try {
+      tracker.abort();
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
+      await boundary.waitForWorkspaceDrain(session.tenantId, session.workspaceSlug);
+    } catch (error) {
+      failures.push(error);
+    }
+  } finally {
+    try {
+      releaseAbortBlock();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'transaction tracker cleanup failed');
+}
+
+export function assertSimulationTransport(sim: {
+  readonly success: boolean;
+  readonly raw?: unknown;
+}): void {
+  if (sim.success) return;
+  if (
+    sim.raw instanceof WativeError &&
+    ['RPC_UNREACHABLE', 'RPC_REJECTED', 'TX_TIMEOUT'].includes(sim.raw.code)
+  ) {
+    throw sim.raw;
+  }
+  // wative-core 2.4.4's SVM adapter returns a plain Error for transport
+  // rejection, while ordinary on-chain simulation failures carry structured
+  // RPC data. Never render the transport failure as HTTP 200.
+  if (sim.raw instanceof Error) {
+    throw new TeeError('TEE_RPC_UNREACHABLE', 'RPC simulation did not complete');
+  }
+}
+
+async function jsonRpc(url: string, payload: unknown, deadlineMs: number): Promise<unknown> {
   let response: globalThis.Response;
   try {
     response = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(deadlineMs),
       redirect: 'error',
     });
   } catch (cause) {

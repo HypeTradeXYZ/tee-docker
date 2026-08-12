@@ -40,13 +40,22 @@ export class ErrorFilter implements ExceptionFilter {
     const req = ctx.getRequest<AppRequest>();
     const requestId = req.requestId ?? 'unknown';
 
-    const { status, body } = this.render(exception, requestId);
+    let rendered: { status: number; body: ErrorBody };
+    try {
+      rendered = this.render(exception, requestId);
+    } catch {
+      // Exception values are untrusted too: proxies can throw from
+      // instanceof, property access, or string conversion. The error boundary
+      // must remain total and still write an opaque response.
+      rendered = this.genericError(requestId);
+    }
+    const { status, body } = rendered;
 
     // 5xx means we broke, not the caller — keep the real detail in logs only.
     if (status >= 500) {
       this.logger.error(
         `[${requestId}] ${body.error.code} ${status}: ${redactForLog(describe(exception))}`,
-        exception instanceof Error ? redactForLog(exception.stack ?? '') : undefined,
+        safeStack(exception),
       );
     } else {
       this.logger.warn(`[${requestId}] ${body.error.code} ${status}`);
@@ -80,7 +89,9 @@ export class ErrorFilter implements ExceptionFilter {
           code: mapped.code,
           // A 5xx message may carry internal state; 4xx is the caller's own
           // fault and telling them why is the whole point.
-          message: mapped.status >= 500 ? 'internal error' : exception.message,
+          message: mapped.status >= 500 && !mapped.exposeMessage
+            ? 'internal error'
+            : exception.message,
           status: mapped.status,
           requestId,
         },
@@ -93,11 +104,84 @@ export class ErrorFilter implements ExceptionFilter {
       return { status: mapped.status, body };
     }
 
+    // Express body parsers use ordinary Error objects carrying numeric status
+    // fields. Only accept a narrow, internally consistent HTTP status shape;
+    // never reflect their message or parser metadata to the caller.
+    const plainStatus = numericErrorStatus(exception);
+    if (plainStatus !== undefined) {
+      return {
+        status: plainStatus,
+        body: {
+          error: {
+            code: httpCodeSlug(plainStatus),
+            message: httpPublicMessage(plainStatus),
+            status: plainStatus,
+            requestId,
+          },
+        },
+      };
+    }
+
+    return this.genericError(requestId);
+  }
+
+  private genericError(requestId: string): { status: number; body: ErrorBody } {
     const status = this.errors.defaultStatus;
     return {
       status,
       body: { error: { code: 'internal_error', message: 'internal error', status, requestId } },
     };
+  }
+}
+
+function numericErrorStatus(exception: unknown): number | undefined {
+  if ((typeof exception !== 'object' || exception === null) && typeof exception !== 'function') {
+    return undefined;
+  }
+
+  const status = readStatusField(exception, 'status');
+  const statusCode = readStatusField(exception, 'statusCode');
+  if (!status.present && !statusCode.present) return undefined;
+  if (!status.valid || !statusCode.valid) return undefined;
+  if (status.present && statusCode.present && status.value !== statusCode.value) return undefined;
+  return status.present ? status.value : statusCode.value;
+}
+
+function readStatusField(
+  value: object | Function,
+  key: 'status' | 'statusCode',
+): { present: boolean; valid: boolean; value?: number } {
+  try {
+    if (!(key in value)) return { present: false, valid: true };
+    const candidate = Reflect.get(value, key);
+    if (
+      typeof candidate !== 'number'
+      || !Number.isSafeInteger(candidate)
+      || candidate < 400
+      || candidate > 599
+    ) {
+      return { present: true, valid: false };
+    }
+    return { present: true, valid: true, value: candidate };
+  } catch {
+    return { present: true, valid: false };
+  }
+}
+
+function httpPublicMessage(status: number): string {
+  switch (status) {
+    case 400:
+      return 'bad request';
+    case 401:
+      return 'unauthorized';
+    case 403:
+      return 'forbidden';
+    case 404:
+      return 'not found';
+    case 413:
+      return 'payload too large';
+    default:
+      return status >= 500 ? 'internal error' : 'request failed';
   }
 }
 
@@ -119,8 +203,20 @@ function httpCodeSlug(status: number): string {
 }
 
 function describe(exception: unknown): string {
-  if (exception instanceof Error) return `${exception.name}: ${exception.message}`;
-  return String(exception);
+  try {
+    if (exception instanceof Error) return `${exception.name}: ${exception.message}`;
+    return String(exception);
+  } catch {
+    return 'uninspectable exception';
+  }
+}
+
+function safeStack(exception: unknown): string | undefined {
+  try {
+    return exception instanceof Error ? redactForLog(exception.stack ?? '') : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Relay capabilities are bearer authority even though they are loopback-only. */

@@ -41,6 +41,10 @@ export class MintRateLimiter {
     this.maxPerWindow = parsed.data;
   }
 
+  get limit(): number {
+    return this.maxPerWindow;
+  }
+
   /** Record an attempt, or throw if the tenant is over its budget. */
   check(tenantId: string): void {
     const now = Date.now();

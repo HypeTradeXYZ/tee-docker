@@ -1,16 +1,16 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from './config/config.module';
 import { ErrorMapService } from './config/error-map.service';
 import { ErrorFilter } from './common/error.filter';
-import { RequestIdMiddleware } from './common/request-id.middleware';
 import { SERVER_KEY, ServerKeyProvider } from './auth/server-key';
 import { TenantGuard } from './auth/tenant.guard';
 import { AuthController } from './auth/auth.controller';
 import { JwtService } from './auth/jwt.service';
 import { MintRateLimiter, mintRateLimitFromEnv } from './auth/mint-rate-limit';
+import { ACCOUNT_UNLOCK_CLOCK, AccountUnlockLimiter } from './auth/account-unlock-limiter';
 import { WorkspaceGuard } from './auth/workspace.guard';
-import { SessionRegistry } from './session/session.registry';
+import { ACCOUNT_CUSTODY_CLOCK, SessionRegistry } from './session/session.registry';
 import { SESSION_CAPACITY, sessionCapacityFromEnv } from './session/session-capacity';
 import { WorkspaceMutexInterceptor } from './session/workspace-mutex.interceptor';
 import { WorkspaceController } from './session/workspace.controller';
@@ -21,6 +21,7 @@ import { NetworksController } from './session/networks.controller';
 import { ExportController } from './export/export.controller';
 import { TransactionsController } from './session/transactions.controller';
 import { BalancesController } from './session/balances.controller';
+import { BalanceCapabilityGuard } from './session/balance-capability';
 import { ScopesGuard } from './auth/scopes.guard';
 import { HealthController } from './health/health.controller';
 import { KdfCheckService } from './kdf/kdf-check.service';
@@ -34,6 +35,11 @@ import {
   systemRpcDnsResolver,
 } from './session/rpc-boundary.service';
 import { request as httpsRequest } from 'node:https';
+import {
+  RPC_OPERATION_CONFIG,
+  RpcOperationService,
+  rpcOperationConfigFromEnv,
+} from './session/rpc-operation.service';
 
 @Module({
   imports: [ConfigModule],
@@ -49,6 +55,9 @@ import { request as httpsRequest } from 'node:https';
       // after its static AppModule import, but before Nest constructs providers.
       useFactory: () => new MintRateLimiter(mintRateLimitFromEnv()),
     },
+    { provide: ACCOUNT_UNLOCK_CLOCK, useValue: Date.now },
+    AccountUnlockLimiter,
+    { provide: ACCOUNT_CUSTODY_CLOCK, useValue: Date.now },
     SessionRegistry,
     { provide: SESSION_CAPACITY, useFactory: sessionCapacityFromEnv },
     { provide: APP_INTERCEPTOR, useClass: WorkspaceMutexInterceptor },
@@ -63,6 +72,9 @@ import { request as httpsRequest } from 'node:https';
     { provide: RPC_DNS_RESOLVER, useValue: systemRpcDnsResolver },
     { provide: RPC_HTTPS_REQUESTER, useValue: httpsRequest },
     RpcBoundaryService,
+    { provide: RPC_OPERATION_CONFIG, useFactory: rpcOperationConfigFromEnv },
+    RpcOperationService,
+    BalanceCapabilityGuard,
     KdfCheckService,
     // Global, but registered as a provider so it can inject the config-driven
     // error map rather than reaching for a singleton.
@@ -73,8 +85,4 @@ import { request as httpsRequest } from 'node:https';
     },
   ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(RequestIdMiddleware).forRoutes('*path');
-  }
-}
+export class AppModule {}

@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { loadEnvFiles } from './config/env';
+import { installRequestIdMiddleware } from './common/request-id.middleware';
 
 async function bootstrap(): Promise<void> {
   // Static imports have already evaluated AppModule, so configuration must
@@ -10,6 +11,7 @@ async function bootstrap(): Promise<void> {
   const loaded = loadEnvFiles();
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  installRequestIdMiddleware(app);
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
 

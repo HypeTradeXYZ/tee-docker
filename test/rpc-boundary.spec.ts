@@ -334,13 +334,17 @@ describe('RPC egress boundary', () => {
   it('does not start outbound HTTPS when shutdown wins an in-flight DNS race', async () => {
     let releaseDns: (() => void) | undefined;
     let dnsStarted = false;
+    let dnsCalls = 0;
     const requester = jest.fn(fakeRequester({}, [])) as unknown as RpcHttpsRequester;
     const service = boundary(
       async () => {
+        dnsCalls += 1;
         dnsStarted = true;
-        await new Promise<void>((resolve) => {
-          releaseDns = resolve;
-        });
+        if (dnsCalls === 1) {
+          await new Promise<void>((resolve) => {
+            releaseDns = resolve;
+          });
+        }
         return [{ address: '8.8.8.8', family: 4 }];
       },
       requester,
@@ -355,5 +359,60 @@ describe('RPC egress boundary', () => {
     await shutdown;
     expect(requester).not.toHaveBeenCalled();
     await expect(responsePromise).rejects.toThrow();
+  });
+
+  it('does not start outbound HTTPS when a workspace deadline wins an in-flight DNS race', async () => {
+    let releaseDns: (() => void) | undefined;
+    let dnsStarted = false;
+    let dnsCalls = 0;
+    const requester = jest.fn(fakeRequester({}, [])) as unknown as RpcHttpsRequester;
+    const service = boundary(
+      async () => {
+        dnsCalls += 1;
+        dnsStarted = true;
+        if (dnsCalls === 1) {
+          await new Promise<void>((resolve) => {
+            releaseDns = resolve;
+          });
+        }
+        return [{ address: '8.8.8.8', family: 4 }];
+      },
+      requester,
+    );
+    await service.onModuleInit();
+    const relay = service.relayUrl('https://public.test/rpc', 'a', 'b', 'tenant');
+    const responsePromise = fetch(relay, { method: 'POST', body: '{}' });
+    while (!dnsStarted) await new Promise<void>((resolve) => setImmediate(resolve));
+    let drained = false;
+    const drain = service.waitForWorkspaceDrain('a', 'b').then(() => {
+      drained = true;
+    });
+
+    const releaseAbortBlock = service.abortWorkspace('a', 'b');
+    // Session close revokes capabilities before it can acquire the workspace
+    // mutex. That lifecycle transition must not erase the in-flight abort.
+    service.revokeWorkspace('a', 'b');
+    expect(drained).toBe(false);
+    releaseDns?.();
+    const abortedResponse = await responsePromise;
+    expect(abortedResponse.status).toBe(502);
+    await drain;
+    expect(drained).toBe(true);
+    expect(requester).not.toHaveBeenCalled();
+
+    const blocked = service.relayUrl('https://public.test/rpc', 'a', 'b', 'tenant');
+    await fetch(blocked, { method: 'POST', body: '{}' }).then(
+      (res) => expect(res.status).toBe(502),
+    );
+    expect(requester).not.toHaveBeenCalled();
+
+    // A newly issued capability after the old operation drains remains usable.
+    releaseAbortBlock();
+    const replacement = service.relayUrl('https://public.test/rpc', 'a', 'b', 'tenant');
+    await fetch(replacement, { method: 'POST', body: '{}' }).then(
+      (res) => expect(res.status).toBe(200),
+    );
+    expect(requester).toHaveBeenCalledTimes(1);
+    await service.onApplicationShutdown();
   });
 });

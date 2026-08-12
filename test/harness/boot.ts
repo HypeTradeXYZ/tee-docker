@@ -11,6 +11,8 @@ import {
   type RpcDnsResolver,
   type RpcHttpsRequester,
 } from '../../src/session/rpc-boundary.service';
+import { ACCOUNT_UNLOCK_CLOCK, type AccountUnlockClock } from '../../src/auth/account-unlock-limiter';
+import { installRequestIdMiddleware } from '../../src/common/request-id.middleware';
 
 /** Fixed so every flow's secretHash is reproducible. */
 export const TEST_SERVER_KEY = 'a'.repeat(64);
@@ -52,6 +54,8 @@ export interface BootOptions {
   /** Deterministic H-01 resolver/request transport overrides. */
   readonly rpcDnsResolver?: RpcDnsResolver;
   readonly rpcHttpsRequester?: RpcHttpsRequester;
+  /** Deterministic H-02 backoff clock override. */
+  readonly accountUnlockClock?: AccountUnlockClock;
 }
 
 /**
@@ -118,8 +122,12 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
     if (options.rpcHttpsRequester) {
       builder = builder.overrideProvider(RPC_HTTPS_REQUESTER).useValue(options.rpcHttpsRequester);
     }
+    if (options.accountUnlockClock) {
+      builder = builder.overrideProvider(ACCOUNT_UNLOCK_CLOCK).useValue(options.accountUnlockClock);
+    }
     const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication();
+    installRequestIdMiddleware(app);
     app.setGlobalPrefix('v1');
     await app.init();
   } catch (err) {

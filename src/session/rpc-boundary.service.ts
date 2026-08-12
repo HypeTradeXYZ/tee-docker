@@ -76,7 +76,9 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
   private relayOrigin: string | null = null;
   private activeRequests = 0;
   private readonly activeCapabilities = new Map<string, Set<string>>();
-  private readonly outboundAborts = new Set<AbortController>();
+  private readonly outboundAborts = new Map<AbortController, string>();
+  private readonly workspaceAbortBlocks = new Map<string, number>();
+  private readonly workspaceDrainWaiters = new Map<string, Set<() => void>>();
   private shutdownDrain: Promise<void> | null = null;
   private resolveShutdownDrain: (() => void) | null = null;
   private shuttingDown = false;
@@ -145,18 +147,20 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     this.server = null;
     this.relayOrigin = null;
     this.activeCapabilities.clear();
+    this.workspaceAbortBlocks.clear();
     if (!server) return;
     if (this.activeRequests > 0) {
       this.shutdownDrain = new Promise<void>((resolve) => {
         this.resolveShutdownDrain = resolve;
       });
     }
-    for (const controller of this.outboundAborts) controller.abort();
+    for (const controller of this.outboundAborts.keys()) controller.abort();
     await new Promise<void>((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
       server.closeAllConnections();
     });
     await this.shutdownDrain;
+    this.workspaceDrainWaiters.clear();
   }
 
   /** Validate a newly supplied external target before it can be persisted. */
@@ -164,6 +168,37 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     const target = parseRpcTarget(raw);
     await this.resolvePublic(target.hostname);
     return target.href;
+  }
+
+  /**
+   * Abort live transport and reject later relay calls from the same operation
+   * until its caller confirms that the underlying core promise has settled.
+   */
+  abortWorkspace(tenantId: string, workspaceSlug: string): () => void {
+    const key = capabilityWorkspaceKey(tenantId, workspaceSlug);
+    this.workspaceAbortBlocks.set(key, (this.workspaceAbortBlocks.get(key) ?? 0) + 1);
+    for (const [controller, workspaceKey] of this.outboundAborts) {
+      if (workspaceKey === key) controller.abort();
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.workspaceAbortBlocks.get(key) ?? 1) - 1;
+      if (remaining <= 0) this.workspaceAbortBlocks.delete(key);
+      else this.workspaceAbortBlocks.set(key, remaining);
+    };
+  }
+
+  /** Wait until every relay request already admitted for this workspace exits. */
+  waitForWorkspaceDrain(tenantId: string, workspaceSlug: string): Promise<void> {
+    const key = capabilityWorkspaceKey(tenantId, workspaceSlug);
+    if (![...this.outboundAborts.values()].includes(key)) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const waiters = this.workspaceDrainWaiters.get(key) ?? new Set<() => void>();
+      waiters.add(resolve);
+      this.workspaceDrainWaiters.set(key, waiters);
+    });
   }
 
   /** Create an immutable, tenant/workspace-bound loopback capability. */
@@ -207,7 +242,11 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
 
   /** Revoke every relay capability when the owning singleton leaves custody. */
   revokeWorkspace(tenantId: string, workspaceSlug: string): void {
-    this.activeCapabilities.delete(capabilityWorkspaceKey(tenantId, workspaceSlug));
+    const key = capabilityWorkspaceKey(tenantId, workspaceSlug);
+    this.activeCapabilities.delete(key);
+    for (const [controller, workspaceKey] of this.outboundAborts) {
+      if (workspaceKey === key) controller.abort();
+    }
   }
 
   /** Decode a relay URL only for the workspace to which it was issued. */
@@ -351,6 +390,8 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
       return;
     }
     this.activeRequests += 1;
+    let outboundController: AbortController | null = null;
+    let outboundWorkspaceKey: string | null = null;
     try {
       if (req.method !== 'POST' || !req.url) throw new Error('invalid relay request');
       const path = new URL(req.url, 'http://relay.invalid');
@@ -361,11 +402,20 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
         capabilityWorkspaceKey(capability.tenantId, capability.workspaceSlug),
       );
       if (!active?.has(match[1])) throw new Error('inactive relay capability');
+      const workspaceKey = capabilityWorkspaceKey(capability.tenantId, capability.workspaceSlug);
+      if ((this.workspaceAbortBlocks.get(workspaceKey) ?? 0) > 0) {
+        throw new Error('RPC operation is no longer active');
+      }
+      outboundController = new AbortController();
+      outboundWorkspaceKey = workspaceKey;
+      this.outboundAborts.set(outboundController, workspaceKey);
+      outboundController.signal.addEventListener('abort', () => req.destroy(), { once: true });
       const body = await readRequest(req);
+      if (outboundController.signal.aborted) throw new Error('RPC operation was aborted');
       const parsed = JSON.parse(body.toString('utf8')) as unknown;
       if (parsed === null || (typeof parsed !== 'object')) throw new Error('invalid JSON-RPC body');
 
-      const upstream = await this.forward(capability.target, body);
+      const upstream = await this.forward(capability, body, outboundController);
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
       res.setHeader('content-length', upstream.length);
@@ -374,6 +424,8 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     } catch {
       writeRelayError(res);
     } finally {
+      if (outboundController) this.outboundAborts.delete(outboundController);
+      if (outboundWorkspaceKey) this.resolveWorkspaceDrain(outboundWorkspaceKey);
       this.activeRequests -= 1;
       if (this.activeRequests === 0 && this.resolveShutdownDrain) {
         this.resolveShutdownDrain();
@@ -383,23 +435,25 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     }
   }
 
-  private async forward(raw: string, body: Buffer): Promise<Buffer> {
+  private async forward(
+    capability: Capability,
+    body: Buffer,
+    controller: AbortController,
+  ): Promise<Buffer> {
     if (body.length > MAX_REQUEST_BYTES) throw new Error('RPC request too large');
-    const target = parseRpcTarget(raw);
+    const target = parseRpcTarget(capability.target);
     const startedAt = Date.now();
-    const addresses = await this.resolvePublic(target.hostname);
+    const addresses = await withAbort(this.resolvePublic(target.hostname), controller.signal);
     if (this.shuttingDown) throw new Error('RPC boundary is shutting down');
+    if (controller.signal.aborted) throw new Error('RPC operation was aborted during resolution');
     const selected = addresses[0];
     const remaining = Math.max(1, REQUEST_TIMEOUT_MS - (Date.now() - startedAt));
 
     return new Promise<Buffer>((resolve, reject) => {
-      const controller = new AbortController();
-      this.outboundAborts.add(controller);
       const timer = setTimeout(() => controller.abort(), remaining);
       timer.unref();
       const settle = <T>(fn: (value: T) => void, value: T): void => {
         clearTimeout(timer);
-        this.outboundAborts.delete(controller);
         fn(value);
       };
       if (this.shuttingDown) {
@@ -478,6 +532,14 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     }
     return addresses;
   }
+
+  private resolveWorkspaceDrain(key: string): void {
+    if ([...this.outboundAborts.values()].includes(key)) return;
+    const waiters = this.workspaceDrainWaiters.get(key);
+    if (!waiters) return;
+    this.workspaceDrainWaiters.delete(key);
+    for (const resolve of waiters) resolve();
+  }
 }
 
 export function pinnedLookup(selected: PublicAddress): LookupFunction {
@@ -496,6 +558,24 @@ export function pinnedLookup(selected: PublicAddress): LookupFunction {
 
 function capabilityWorkspaceKey(tenantId: string, workspaceSlug: string): string {
   return `${tenantId.length}:${tenantId}${workspaceSlug}`;
+}
+
+function withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error('RPC operation was aborted'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new Error('RPC operation was aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 function relayToken(

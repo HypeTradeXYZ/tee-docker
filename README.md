@@ -1,7 +1,7 @@
 # TEE Docker
 
 TEE Docker is a HTTP service for creating and using managed wallet workspaces. It gives an
-application one consistent API for accounts, wallets, addresses, signing, transactions, balances,
+application one consistent API for accounts, wallets, addresses, signing, transactions,
 and optional encrypted key export.
 
 This guide is for application developers, integrators, operators, and reviewers. You do NOT need
@@ -52,6 +52,10 @@ You need Node.js 22.12 or newer and pnpm / npm 11.
    ```
 
    A healthy service responds with `{"status":"ok"}`.
+
+Run one service instance for each paired state and workspace storage location.
+Starting a second instance on the same storage is refused to protect wallet and
+quota records.
 
 Before sharing a deployment, run:
 
@@ -130,7 +134,7 @@ All routes use the `/v1` prefix.
 | View or remove an account | `GET/DELETE /accounts/:slug` | Workspace token |
 | List, derive, or import wallets | `/accounts/:slug/wallets` | Workspace token |
 | View addresses | `GET /accounts/:slug/wallets/:id/addresses` | Workspace token |
-| Read balances | `GET /addresses/:publicKey/balances` | Workspace token |
+| Check balance availability (currently `501`) | `GET /addresses/:publicKey/balances` | Workspace token |
 | View or update network endpoints | `/workspace/networks` | Workspace token |
 | Sign a message | `POST /sign/message` | `sign` scope |
 | Build, simulate, send, or check a transaction | `/transactions` | `sign` scope |
@@ -159,6 +163,10 @@ Use `error.code` for application decisions. Keep `requestId` when asking an oper
 
 Common situations include expired tokens (`session_expired`), missing permissions
 (`scope_denied`), usage limits, unavailable network providers, and invalid request data.
+
+Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
+check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may
+still have reached the network.
 
 ## Safe usage
 

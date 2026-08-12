@@ -3,38 +3,7 @@ import { resolve } from 'node:path';
 import { ErrorsConfigSchema } from '../../src/config/schemas';
 import { ErrorMapService } from '../../src/config/error-map.service';
 import { TEE_ERROR_CODES } from '../../src/common/tee-error';
-
-/**
- * Every wative-core error code as of 2.4.3. Hardcoded deliberately: if the
- * library adds a code in a minor release, this list is where we notice the
- * gap, rather than a caller receiving an opaque 500 in production.
- */
-const WATIVE_ERROR_CODES = [
-  'WORKSPACE_LOCKED',
-  'ACCOUNT_LOCKED',
-  'RECORD_LOCKED',
-  'BAD_PASSWORD',
-  'WEAK_PASSWORD',
-  'RECORD_NOT_FOUND',
-  'PROVIDER_IO',
-  'PERMISSION_DENIED',
-  'DISK_FULL',
-  'PARAMETER_ERROR',
-  'DECRYPT_FAILED',
-  'ENCRYPT_FAILED',
-  'ALGORITHM_IRREVERSIBLE',
-  'INVALID_MNEMONIC',
-  'INVALID_PRIVATE_KEY',
-  'UNSUPPORTED_NETWORK',
-  'TX_BUILD_FAILED',
-  'TX_SIGN_FAILED',
-  'TX_SUBMIT_FAILED',
-  'TX_TIMEOUT',
-  'TX_DROPPED',
-  'RPC_UNREACHABLE',
-  'STORAGE_NOT_DURABLE',
-  'UNSUPPORTED_OP',
-] as const;
+import { WATIVE_ERROR_CODES } from '../../src/common/wative-error-codes';
 
 describe('error-map', () => {
   const config = ErrorsConfigSchema.parse(
@@ -50,6 +19,60 @@ describe('error-map', () => {
     expect(service.resolve(code).unmapped).toBe(false);
   });
 
+  it('has one unique mapping for every reviewed core and tee code', () => {
+    const reviewed = [...WATIVE_ERROR_CODES, ...TEE_ERROR_CODES];
+    expect(new Set(reviewed).size).toBe(reviewed.length);
+    expect(new Set(service.mappedCodes)).toEqual(new Set(reviewed));
+  });
+
+  it('maps abort and endpoint rejection with reviewed public semantics', () => {
+    expect(service.resolve('TX_ABORTED')).toMatchObject({
+      status: 409,
+      code: 'tx_aborted',
+      exposeDetails: false,
+      exposeMessage: false,
+    });
+    expect(service.resolve('RPC_REJECTED')).toMatchObject({
+      status: 502,
+      code: 'rpc_rejected',
+      exposeDetails: false,
+      exposeMessage: false,
+    });
+  });
+
+  it('refuses construction when a reviewed mapping is missing', () => {
+    const mappings = { ...config.mappings };
+    delete mappings.RPC_REJECTED;
+    expect(() => new ErrorMapService({ ...config, mappings })).toThrow(
+      'error map is missing reviewed codes: RPC_REJECTED',
+    );
+  });
+
+  it('refuses unreviewed mapping keys and misspelled mapping options', () => {
+    expect(() =>
+      new ErrorMapService({
+        ...config,
+        mappings: {
+          ...config.mappings,
+          RPC_REJECTEDD: { status: 502, code: 'rpc_rejected' },
+        },
+      }),
+    ).toThrow('error map has unreviewed codes: RPC_REJECTEDD');
+
+    expect(() =>
+      ErrorsConfigSchema.parse({
+        ...config,
+        mappings: {
+          ...config.mappings,
+          RPC_REJECTED: {
+            ...config.mappings.RPC_REJECTED,
+            exposeMesssage: true,
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
   it('degrades an unknown code to the default status instead of throwing', () => {
     const resolved = service.resolve('SOME_FUTURE_CODE_FROM_A_MINOR_RELEASE');
     expect(resolved).toMatchObject({
@@ -57,6 +80,7 @@ describe('error-map', () => {
       status: config.defaultStatus,
       code: 'internal_error',
       exposeDetails: false,
+      exposeMessage: false,
     });
   });
 
@@ -69,6 +93,8 @@ describe('error-map', () => {
     //   TEE_SCOPE_DENIED   -> names which scope the token lacks
     //   TEE_RPC_NOT_CONFIGURED -> names which network has no endpoint
     //   TEE_SESSION_CAPACITY -> names only the exhausted scope and configured limit
+    //   TEE_ACCOUNT_UNLOCK_RATE -> names only a finite retry delay
+    //   TEE_RPC_CAPACITY -> names only the exhausted scope and configured limit
     expect(new Set(optedIn)).toEqual(
       new Set([
         'TEE_INVALID_SLUG',
@@ -77,8 +103,15 @@ describe('error-map', () => {
         'TEE_RPC_NOT_CONFIGURED',
         'TEE_UNLOCK_CAPACITY',
         'TEE_SESSION_CAPACITY',
+        'TEE_ACCOUNT_UNLOCK_RATE',
+        'TEE_RPC_CAPACITY',
       ]),
     );
+  });
+
+  it('exposes a 5xx message only for the fixed balance capability response', () => {
+    const optedIn = service.mappedCodes.filter((c) => service.resolve(c).exposeMessage);
+    expect(optedIn).toEqual(['TEE_BALANCES_UNAVAILABLE']);
   });
 
   it('uses a sane status for every mapping', () => {
