@@ -74,4 +74,13 @@ describe('mint-rate-limit-flow', () => {
       await other.close();
     }
   });
+
+  it.each(['', ' ', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992'])(
+    'refuses to boot with invalid TEE_MINT_RATE_LIMIT=%p',
+    async (value) => {
+      await expect(boot({ env: { TEE_MINT_RATE_LIMIT: value } })).rejects.toThrow(
+        'TEE_MINT_RATE_LIMIT must be a positive safe integer',
+      );
+    },
+  );
 });

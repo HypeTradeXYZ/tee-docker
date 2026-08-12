@@ -5,8 +5,8 @@ import { AppModule } from './app.module';
 import { loadEnvFiles } from './config/env';
 
 async function bootstrap(): Promise<void> {
-  // Before AppModule is imported — config providers read process.env at
-  // construction, so the files have to be in place first.
+  // Static imports have already evaluated AppModule, so configuration must
+  // stay lazy: load env files before Nest constructs any config providers.
   const loaded = loadEnvFiles();
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });

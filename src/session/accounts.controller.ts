@@ -4,7 +4,7 @@ import { TeeError } from '../common/tee-error';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import type { Tenant } from '../config/schemas';
-import { assertValidSlug } from '../workspaces/workspace-paths';
+import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
 import { SessionRegistry, type Session } from './session.registry';
 import {
@@ -62,7 +62,7 @@ export class AccountsController {
   @HttpCode(204)
   @RequireScopes('write')
   async drop(@CurrentSession() session: Session, @Param('slug') slug: string): Promise<void> {
-    await this.accounts.drop(session, assertValidSlug(slug));
+    await this.accounts.drop(session, assertValidAccountSlug(slug));
   }
 
   @Post(':slug/wallets')
@@ -76,7 +76,12 @@ export class AccountsController {
   ): Promise<{ before: number; after: number }> {
     const parsed = DeriveWallets.safeParse(body);
     if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { count }');
-    return this.accounts.deriveWallets(session, tenant, assertValidSlug(slug), parsed.data.count);
+    return this.accounts.deriveWallets(
+      session,
+      tenant,
+      assertValidAccountSlug(slug),
+      parsed.data.count,
+    );
   }
 
   @Post(':slug/wallets/import')
@@ -93,7 +98,7 @@ export class AccountsController {
     const wallet = await this.accounts.importPrivateKey(
       session,
       tenant,
-      assertValidSlug(slug),
+      assertValidAccountSlug(slug),
       parsed.data.privateKey,
     );
     return { wallet: walletView(wallet) };
@@ -105,7 +110,7 @@ export class AccountsController {
     @CurrentSession() session: Session,
     @Param('slug') slug: string,
   ): Promise<{ wallets: WalletView[] }> {
-    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
     return { wallets: account.wallets.map(walletView) };
   }
 
@@ -116,7 +121,7 @@ export class AccountsController {
     @Param('slug') slug: string,
     @Param('id') id: string,
   ): Promise<{ addresses: AddressView[] }> {
-    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
     const wallet = account.wallets.byId(Number(id));
     if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
     return { addresses: wallet.addresses.map(addressView) };
@@ -133,7 +138,7 @@ export class AccountsController {
     const parsed = SetTags.safeParse(body);
     if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { tags }');
 
-    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
     const wallet = account.wallets.byId(Number(id));
     if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
 

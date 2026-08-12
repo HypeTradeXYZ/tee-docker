@@ -1,11 +1,22 @@
 import { Controller, HttpCode, Logger, Param, Post, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
+import { assertValidAccountSlug } from '../session/account-slug';
 import { SessionRegistry, type Session } from '../session/session.registry';
-import { assertValidSlug } from '../workspaces/workspace-paths';
 import { seal, type SealedBlob } from './seal';
+
+const WalletId = z
+  .string()
+  .regex(/^(0|[1-9]\d*)$/)
+  .transform(Number)
+  .pipe(z.number().int().nonnegative().safe());
+
+type ExportTarget =
+  | { readonly kind: 'mnemonic' }
+  | { readonly kind: 'privateKey'; readonly walletId: number };
 
 /**
  * Export — the highest-consequence route in the service.
@@ -31,16 +42,18 @@ export class ExportController {
     @CurrentTokenTenant() tenant: Tenant,
     @Param('slug') slug: string,
   ): Promise<{ kind: 'mnemonic'; account: string; sealed: SealedBlob }> {
-    const account = await this.audited(session, tenant, assertValidSlug(slug), 'mnemonic');
-
-    if (account.organizationType !== 'HD') {
-      throw new TeeError('TEE_INVALID_SLUG', 'only an HD account has a mnemonic');
-    }
-    return {
-      kind: 'mnemonic',
-      account: String(account.slug),
-      sealed: seal(account.dumpMnemonic(), tenant.exportPublicKey as string),
-    };
+    const accountSlug = assertValidAccountSlug(slug);
+    return this.audited(session, tenant, accountSlug, { kind: 'mnemonic' }, async () => {
+      const account = await this.sessions.requireAccount(session, accountSlug);
+      if (account.organizationType !== 'HD') {
+        throw new TeeError('TEE_INVALID_SLUG', 'only an HD account has a mnemonic');
+      }
+      return {
+        kind: 'mnemonic',
+        account: String(account.slug),
+        sealed: seal(account.dumpMnemonic(), tenant.exportPublicKey as string),
+      };
+    });
   }
 
   @Post('accounts/:slug/wallets/:id/export')
@@ -51,20 +64,32 @@ export class ExportController {
     @Param('slug') slug: string,
     @Param('id') id: string,
   ): Promise<{ kind: 'privateKey'; account: string; walletId: number; sealed: SealedBlob }> {
-    const account = await this.audited(session, tenant, assertValidSlug(slug), `wallet:${id}`);
+    const accountSlug = assertValidAccountSlug(slug);
+    const parsedId = WalletId.safeParse(id);
+    if (!parsedId.success) throw new TeeError('TEE_INVALID_SLUG', 'wallet id must be an integer');
+    const walletId = parsedId.data;
 
-    const wallet = account.wallets.byId(Number(id));
-    if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
+    return this.audited(
+      session,
+      tenant,
+      accountSlug,
+      { kind: 'privateKey', walletId },
+      async () => {
+        const account = await this.sessions.requireAccount(session, accountSlug);
+        const wallet = account.wallets.byId(walletId);
+        if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${walletId} not found`);
 
-    const vm = wallet.addresses[0]?.vm;
-    if (!vm) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} has no address`);
+        const vm = wallet.addresses[0]?.vm;
+        if (!vm) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${walletId} has no address`);
 
-    return {
-      kind: 'privateKey',
-      account: String(account.slug),
-      walletId: wallet.id,
-      sealed: seal(wallet.dumpPrivateKey(vm), tenant.exportPublicKey as string),
-    };
+        return {
+          kind: 'privateKey',
+          account: String(account.slug),
+          walletId: wallet.id,
+          sealed: seal(wallet.dumpPrivateKey(vm), tenant.exportPublicKey as string),
+        };
+      },
+    );
   }
 
   /**
@@ -72,25 +97,44 @@ export class ExportController {
    * is the one operation where "when did this key leave" must be answerable
    * after the fact.
    */
-  private async audited(session: Session, tenant: Tenant, slug: string, target: string) {
-    if (!tenant.exportEnabled || !tenant.exportPublicKey) {
-      this.logger.warn(
-        `export DENIED (no registered key) tenant=${tenant.id} ws=${session.workspaceSlug} target=${target}`,
-      );
-      throw new TeeError('TEE_EXPORT_DISABLED', 'no exportPublicKey registered for this tenant');
-    }
-
+  private async audited<T>(
+    session: Session,
+    tenant: Tenant,
+    accountSlug: string,
+    target: ExportTarget,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    this.audit('ATTEMPT', session, tenant, accountSlug, target);
     try {
-      const account = await this.sessions.requireAccount(session, slug);
-      this.logger.log(
-        `export GRANTED tenant=${tenant.id} ws=${session.workspaceSlug} account=${slug} target=${target}`,
-      );
-      return account;
+      if (!tenant.exportEnabled || !tenant.exportPublicKey) {
+        throw new TeeError('TEE_EXPORT_DISABLED', 'no exportPublicKey registered for this tenant');
+      }
+      const result = await operation();
+      this.audit('SUCCESS', session, tenant, accountSlug, target);
+      return result;
     } catch (err) {
-      this.logger.warn(
-        `export DENIED tenant=${tenant.id} ws=${session.workspaceSlug} account=${slug} target=${target}`,
-      );
+      this.audit('FAILURE', session, tenant, accountSlug, target);
       throw err;
     }
+  }
+
+  private audit(
+    outcome: 'ATTEMPT' | 'SUCCESS' | 'FAILURE',
+    session: Session,
+    tenant: Tenant,
+    accountSlug: string,
+    target: ExportTarget,
+  ): void {
+    const record = {
+      event: 'key_export',
+      outcome,
+      tenantId: tenant.id,
+      workspaceSlug: session.workspaceSlug,
+      accountSlug,
+      target: target.kind,
+      ...(target.kind === 'privateKey' ? { walletId: target.walletId } : {}),
+    };
+    if (outcome === 'FAILURE') this.logger.warn(record);
+    else this.logger.log(record);
   }
 }

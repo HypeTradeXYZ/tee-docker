@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
 import { CurrentSession, WorkspaceGuard } from '../auth/workspace.guard';
 import { AllowAnyWorkspaceScope, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
-import { assertValidSlug } from '../workspaces/workspace-paths';
+import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
 
 const UnlockBody = z.object({ accountPassword: z.string().min(1) });
@@ -113,14 +113,18 @@ export class WorkspaceController {
     if (!parsed.success) {
       throw new TeeError('TEE_INVALID_SLUG', 'body must be { accountPassword }');
     }
-    await this.sessions.unlockAccount(session, assertValidSlug(slug), parsed.data.accountPassword);
+    await this.sessions.unlockAccount(
+      session,
+      assertValidAccountSlug(slug),
+      parsed.data.accountPassword,
+    );
   }
 
   @Post('accounts/:slug/lock')
   @HttpCode(204)
   @AllowAnyWorkspaceScope()
   lock(@CurrentSession() session: Session, @Param('slug') slug: string): void {
-    this.sessions.lockAccount(session, assertValidSlug(slug));
+    this.sessions.lockAccount(session, assertValidAccountSlug(slug));
   }
 
   /**
@@ -133,7 +137,7 @@ export class WorkspaceController {
     @CurrentSession() session: Session,
     @Param('slug') slug: string,
   ): Promise<{ account: AccountView }> {
-    const a = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const a = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
     return {
       account: {
         slug: String(a.slug),

@@ -1,9 +1,23 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
 
 /** Sliding window. Small numbers because each mint costs a real KDF. */
 const WINDOW_MS = 60_000;
 const DEFAULT_MAX_PER_WINDOW = 10;
+const CoercedPositiveSafeInteger = z.coerce.number().int().positive().safe();
+const PositiveSafeInteger = z.number().int().positive().safe();
+
+export function mintRateLimitFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const value = env.TEE_MINT_RATE_LIMIT;
+  const parsed = CoercedPositiveSafeInteger.safeParse(
+    value === undefined ? DEFAULT_MAX_PER_WINDOW : value,
+  );
+  if (!parsed.success) {
+    throw new Error('TEE_MINT_RATE_LIMIT must be a positive safe integer');
+  }
+  return parsed.data;
+}
 
 /**
  * Rate limit on token minting, per tenant.
@@ -19,8 +33,13 @@ const DEFAULT_MAX_PER_WINDOW = 10;
 export class MintRateLimiter {
   private readonly logger = new Logger(MintRateLimiter.name);
   readonly #hits = new Map<string, number[]>();
+  private readonly maxPerWindow: number;
 
-  constructor(private readonly maxPerWindow: number = DEFAULT_MAX_PER_WINDOW) {}
+  constructor(maxPerWindow: number) {
+    const parsed = PositiveSafeInteger.safeParse(maxPerWindow);
+    if (!parsed.success) throw new Error('mint rate limit must be a positive safe integer');
+    this.maxPerWindow = parsed.data;
+  }
 
   /** Record an attempt, or throw if the tenant is over its budget. */
   check(tenantId: string): void {

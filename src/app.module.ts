@@ -8,7 +8,7 @@ import { SERVER_KEY, ServerKeyProvider } from './auth/server-key';
 import { TenantGuard } from './auth/tenant.guard';
 import { AuthController } from './auth/auth.controller';
 import { JwtService } from './auth/jwt.service';
-import { MintRateLimiter } from './auth/mint-rate-limit';
+import { MintRateLimiter, mintRateLimitFromEnv } from './auth/mint-rate-limit';
 import { WorkspaceGuard } from './auth/workspace.guard';
 import { SessionRegistry } from './session/session.registry';
 import { SESSION_CAPACITY, sessionCapacityFromEnv } from './session/session-capacity';
@@ -45,7 +45,9 @@ import { request as httpsRequest } from 'node:https';
     JwtService,
     {
       provide: MintRateLimiter,
-      useFactory: () => new MintRateLimiter(Number(process.env.TEE_MINT_RATE_LIMIT ?? 10)),
+      // Keep env parsing inside the provider factory. main.ts loads env files
+      // after its static AppModule import, but before Nest constructs providers.
+      useFactory: () => new MintRateLimiter(mintRateLimitFromEnv()),
     },
     SessionRegistry,
     { provide: SESSION_CAPACITY, useFactory: sessionCapacityFromEnv },
