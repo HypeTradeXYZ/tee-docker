@@ -1,0 +1,148 @@
+import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
+import { TeeError } from '../common/tee-error';
+import { CurrentSession, WorkspaceGuard } from '../auth/workspace.guard';
+import { AllowAnyWorkspaceScope, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { assertValidSlug } from '../workspaces/workspace-paths';
+import { SessionRegistry, type Session } from './session.registry';
+
+const UnlockBody = z.object({ accountPassword: z.string().min(1) });
+
+interface AssetView {
+  id: number;
+  symbol: string;
+  name: string;
+  decimals: number;
+  native: boolean;
+  contractAddress: string | null;
+}
+
+interface AccountView {
+  slug: string;
+  displayName: string;
+  kind: string;
+  hasOwnPassword: boolean;
+  locked: boolean;
+  wallets: number;
+}
+
+/**
+ * The workspace tier. Every route here is addressed by the token's `ws` claim
+ * — there is no `:workspace` path parameter, so a path and a token can never
+ * disagree about which workspace is in play.
+ */
+@Controller()
+@UseGuards(WorkspaceGuard, ScopesGuard)
+export class WorkspaceController {
+  constructor(private readonly sessions: SessionRegistry) {}
+
+  @Get('workspace')
+  @RequireScopes('read')
+  info(@CurrentSession() session: Session): {
+    workspace: string;
+    locked: boolean;
+    accounts: number;
+    expiresAt: string;
+  } {
+    return {
+      workspace: session.workspaceSlug,
+      locked: session.handle.locked,
+      accounts: session.handle.accounts.length,
+      expiresAt: new Date(session.idleExpiresAt).toISOString(),
+    };
+  }
+
+  @Get('accounts')
+  @RequireScopes('read')
+  accounts(@CurrentSession() session: Session): { accounts: AccountView[] } {
+    return {
+      accounts: session.handle.accounts.map(
+        (a): AccountView => ({
+          slug: String(a.slug),
+          displayName: a.displayName,
+          kind: a.organizationType,
+          hasOwnPassword: a.hasOwnPassword,
+          locked: a.locked,
+          wallets: a.wallets.length,
+        }),
+      ),
+    };
+  }
+
+  /**
+   * Assets on one network. `Workspace.assets()` is per-network, so a network
+   * must be named — listing every network's assets would be an unbounded
+   * response shaped by how many networks the tenant has registered.
+   */
+  @Get('workspace/assets')
+  @RequireScopes('read')
+  async assets(
+    @CurrentSession() session: Session,
+    @Query('network') network: string | undefined,
+  ): Promise<{ network: string; assets: AssetView[] }> {
+    if (!network) {
+      throw new TeeError('TEE_INVALID_SLUG', 'a ?network= query parameter is required');
+    }
+    const assets = await session.handle.assets(network);
+    return {
+      network,
+      assets: assets.map((a) => ({
+        id: Number(a.id),
+        symbol: a.symbol,
+        name: a.name,
+        decimals: a.decimals,
+        native: a.native,
+        contractAddress: a.contractAddress,
+      })),
+    };
+  }
+
+  /**
+   * Explicit unlock, required only for an account with its own password.
+   * A shared-password account unlocks transparently on first use.
+   */
+  @Post('accounts/:slug/unlock')
+  @HttpCode(204)
+  @AllowAnyWorkspaceScope()
+  async unlock(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+    @Body() body: unknown,
+  ): Promise<void> {
+    const parsed = UnlockBody.safeParse(body);
+    if (!parsed.success) {
+      throw new TeeError('TEE_INVALID_SLUG', 'body must be { accountPassword }');
+    }
+    await this.sessions.unlockAccount(session, assertValidSlug(slug), parsed.data.accountPassword);
+  }
+
+  @Post('accounts/:slug/lock')
+  @HttpCode(204)
+  @AllowAnyWorkspaceScope()
+  lock(@CurrentSession() session: Session, @Param('slug') slug: string): void {
+    this.sessions.lockAccount(session, assertValidSlug(slug));
+  }
+
+  /**
+   * Resolve an account, unlocking it lazily. Stands in for the domain routes
+   * still to come — it is the shape every one of them will use.
+   */
+  @Get('accounts/:slug')
+  @RequireScopes('read')
+  async account(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+  ): Promise<{ account: AccountView }> {
+    const a = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    return {
+      account: {
+        slug: String(a.slug),
+        displayName: a.displayName,
+        kind: a.organizationType,
+        hasOwnPassword: a.hasOwnPassword,
+        locked: a.locked,
+        wallets: a.wallets.length,
+      },
+    };
+  }
+}

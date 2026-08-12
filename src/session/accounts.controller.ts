@@ -1,0 +1,144 @@
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
+import { TeeError } from '../common/tee-error';
+import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
+import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import type { Tenant } from '../config/schemas';
+import { assertValidSlug } from '../workspaces/workspace-paths';
+import { AccountsService } from './accounts.service';
+import { SessionRegistry, type Session } from './session.registry';
+import {
+  accountView,
+  addressView,
+  walletView,
+  type AccountView,
+  type AddressView,
+  type WalletView,
+} from './views';
+
+const CreateAccount = z.object({
+  displayName: z.string().min(1).max(120),
+  kind: z.enum(['HD', 'PK']).default('HD'),
+  /** Mnemonic for HD (generated when absent), private key for PK. */
+  secret: z.string().min(1).optional(),
+  defaultNetwork: z.string().min(1).optional(),
+});
+
+const DeriveWallets = z.object({ count: z.number().int().positive().max(500) });
+const ImportKey = z.object({ privateKey: z.string().min(1) });
+const SetTags = z.object({ tags: z.array(z.string().min(1).max(64)).max(32) });
+
+@Controller('accounts')
+@UseGuards(WorkspaceGuard, ScopesGuard)
+export class AccountsController {
+  constructor(
+    private readonly accounts: AccountsService,
+    private readonly sessions: SessionRegistry,
+  ) {}
+
+  @Post()
+  @HttpCode(201)
+  @RequireScopes('write')
+  async create(
+    @CurrentSession() session: Session,
+    @CurrentTokenTenant() tenant: Tenant,
+    @Body() body: unknown,
+  ): Promise<{ account: AccountView; generatedSecret: boolean }> {
+    const parsed = CreateAccount.safeParse(body);
+    if (!parsed.success) {
+      throw new TeeError('TEE_INVALID_SLUG', 'body must be { displayName, kind?, secret?, defaultNetwork? }');
+    }
+
+    const account = await this.accounts.create(session, tenant, parsed.data);
+    return {
+      account: accountView(account),
+      // The mnemonic is NOT returned. A generated secret leaves only through
+      // the sealed export path, never in a plain response body.
+      generatedSecret: parsed.data.secret === undefined,
+    };
+  }
+
+  @Delete(':slug')
+  @HttpCode(204)
+  @RequireScopes('write')
+  async drop(@CurrentSession() session: Session, @Param('slug') slug: string): Promise<void> {
+    await this.accounts.drop(session, assertValidSlug(slug));
+  }
+
+  @Post(':slug/wallets')
+  @HttpCode(201)
+  @RequireScopes('write')
+  async derive(
+    @CurrentSession() session: Session,
+    @CurrentTokenTenant() tenant: Tenant,
+    @Param('slug') slug: string,
+    @Body() body: unknown,
+  ): Promise<{ before: number; after: number }> {
+    const parsed = DeriveWallets.safeParse(body);
+    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { count }');
+    return this.accounts.deriveWallets(session, tenant, assertValidSlug(slug), parsed.data.count);
+  }
+
+  @Post(':slug/wallets/import')
+  @HttpCode(201)
+  @RequireScopes('write')
+  async importKey(
+    @CurrentSession() session: Session,
+    @CurrentTokenTenant() tenant: Tenant,
+    @Param('slug') slug: string,
+    @Body() body: unknown,
+  ): Promise<{ wallet: WalletView }> {
+    const parsed = ImportKey.safeParse(body);
+    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { privateKey }');
+    const wallet = await this.accounts.importPrivateKey(
+      session,
+      tenant,
+      assertValidSlug(slug),
+      parsed.data.privateKey,
+    );
+    return { wallet: walletView(wallet) };
+  }
+
+  @Get(':slug/wallets')
+  @RequireScopes('read')
+  async wallets(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+  ): Promise<{ wallets: WalletView[] }> {
+    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    return { wallets: account.wallets.map(walletView) };
+  }
+
+  @Get(':slug/wallets/:id/addresses')
+  @RequireScopes('read')
+  async addresses(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+    @Param('id') id: string,
+  ): Promise<{ addresses: AddressView[] }> {
+    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const wallet = account.wallets.byId(Number(id));
+    if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
+    return { addresses: wallet.addresses.map(addressView) };
+  }
+
+  @Put(':slug/wallets/:id/tags')
+  @RequireScopes('write')
+  async setTags(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ): Promise<{ wallet: WalletView }> {
+    const parsed = SetTags.safeParse(body);
+    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { tags }');
+
+    const account = await this.sessions.requireAccount(session, assertValidSlug(slug));
+    const wallet = account.wallets.byId(Number(id));
+    if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
+
+    await wallet.clearTags();
+    for (const tag of parsed.data.tags) await wallet.addTag(tag);
+    return { wallet: walletView(wallet) };
+  }
+}

@@ -1,0 +1,9 @@
+# Optional native accelerators pulled in transitively (ws / oxc resolver).
+# Pure-JS fallbacks are used instead — declining their install scripts keeps
+# the postinstall surface smaller. Recorded here so it isn't re-prompted.
+allowBuilds:
+  bufferutil: false
+  unrs-resolver: false
+  utf-8-validate: false
+minimumReleaseAgeExclude:
+  - wative-core@2.4.4

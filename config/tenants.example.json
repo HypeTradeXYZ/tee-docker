@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "Copy to tenants.json and edit by hand. tenants.json is gitignored.",
+    "secretHash is HMAC-SHA256 of the API secret under the server key — not a",
+    "slow KDF. See docs/DESIGN.md §10 for why.",
+    "exportPublicKey is optional; absent disables export for the tenant."
+  ],
+
+  "tenants": [
+    {
+      "id": "acme",
+      "apiKey": "ak_live_0123456789abcdef",
+      "secretHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "exportPublicKey": "x25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+
+      "limits": {
+        "maxWorkspaces": 5,
+        "maxWallets": 200,
+        "maxUnlockedWorkspaces": 8
+      },
+
+      "ttl": {
+        "workspaceIdleSec": 900,
+        "workspaceAbsoluteSec": 28800,
+        "accountAbsoluteSec": 300
+      },
+
+      "rpc": {
+        "ethereum": "https://rpc.example.com/eth",
+        "solana": "https://rpc.example.com/sol"
+      },
+
+      "allowDefaultRpc": true
+    }
+  ]
+}
