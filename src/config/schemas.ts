@@ -88,12 +88,20 @@ export const WorkspaceStateSchema = z.object({
   walletCount: z.number().int().nonnegative(),
 });
 
+export const WalletTagRecoverySchema = z.object({
+  accountSlug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  walletId: z.number().int().nonnegative().safe(),
+  oldTags: z.array(z.string().min(1).max(64)).max(32),
+});
+
 export const TenantStateSchema = z.object({
   walletTotal: z.number().int().nonnegative(),
   workspaces: z.array(WorkspaceStateSchema),
   /** Persisted absolute millisecond deadlines for recently deleted slugs. */
   workspaceCooldowns: z.record(z.string().regex(SLUG_RE), z.number().int().nonnegative().safe())
     .optional(),
+  /** Pending old-tag snapshots are replayed before a reopened workspace is published. */
+  walletTagRecoveries: z.record(z.string().regex(SLUG_RE), WalletTagRecoverySchema).optional(),
 });
 
 export const ServiceStateSchema = z.object({
@@ -106,6 +114,7 @@ export type Limits = z.infer<typeof LimitsSchema>;
 export type ErrorMapping = z.infer<typeof ErrorMappingSchema>;
 export type ErrorsConfig = z.infer<typeof ErrorsConfigSchema>;
 export type WorkspaceState = z.infer<typeof WorkspaceStateSchema>;
+export type WalletTagRecovery = z.infer<typeof WalletTagRecoverySchema>;
 export type TenantState = z.infer<typeof TenantStateSchema>;
 export type ServiceState = z.infer<typeof ServiceStateSchema>;
 

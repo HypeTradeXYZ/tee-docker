@@ -21,6 +21,7 @@ import { WorkspaceMutexInterceptor } from './session/workspace-mutex.interceptor
 import { WorkspaceController } from './session/workspace.controller';
 import { AccountsController } from './session/accounts.controller';
 import { AccountsService } from './session/accounts.service';
+import { WalletTagsService } from './session/wallet-tags.service';
 import { SignController } from './session/sign.controller';
 import { NetworksController } from './session/networks.controller';
 import { ExportController } from './export/export.controller';
@@ -80,6 +81,7 @@ import {
     { provide: SESSION_CAPACITY, useFactory: sessionCapacityFromEnv },
     { provide: APP_INTERCEPTOR, useClass: WorkspaceMutexInterceptor },
     AccountsService,
+    WalletTagsService,
     // NOT global: Nest runs global guards BEFORE controller-level ones, so a
     // global ScopesGuard would read req.scopes before WorkspaceGuard sets it
     // and deny every scoped route. Applied per-controller, after the guard

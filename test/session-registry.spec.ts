@@ -3,6 +3,7 @@ import type { Paths } from '../src/config/paths';
 import type { Tenant } from '../src/config/schemas';
 import type { ServiceStateService } from '../src/config/service-state.service';
 import { SessionRegistry } from '../src/session/session.registry';
+import type { WalletTagsService } from '../src/session/wallet-tags.service';
 import { WorkspaceStorageService } from '../src/workspaces/workspace-storage.service';
 
 const testStorage = {
@@ -37,6 +38,64 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
 }
 
 describe('SessionRegistry close failure', () => {
+  it('replays pending wallet tags before publishing a cold session', async () => {
+    const events: string[] = [];
+    const handle = {
+      accounts: [],
+      lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+    } as unknown as Workspace;
+    const storage = {
+      assertExisting: jest.fn(async () => ({ device: 1, inode: 1, realPath: '/test/workspace' })),
+      openExisting: jest.fn(async (
+        _tenantId: string,
+        _slug: string,
+        _password: string,
+        onOpened: (workspace: Workspace, identity: {
+          device: number; inode: number; realPath: string;
+        }) => void,
+      ) => {
+        onOpened(handle, { device: 1, inode: 1, realPath: '/test/workspace' });
+        return handle;
+      }),
+    } as unknown as WorkspaceStorageService;
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: [
+            { slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 },
+          ],
+        },
+      },
+    };
+    const state = {
+      close: async () => undefined,
+      tenant: () => draft.tenants.acme,
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => {
+        events.push('ledger');
+        return fn(draft);
+      },
+    } as unknown as ServiceStateService;
+    const walletTags = {
+      recoverWorkspace: jest.fn(async () => { events.push('recover'); }),
+    } as unknown as WalletTagsService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-tag-recovery-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      storage,
+      undefined,
+      undefined,
+      undefined,
+      walletTags,
+    );
+
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    expect(events).toEqual(['recover', 'ledger']);
+    expect(walletTags.recoverWorkspace).toHaveBeenCalledTimes(1);
+    await registry.onApplicationShutdown();
+  });
+
   it('retains a failed provisional handle and closes it before a successor provision', async () => {
     const lock = jest.fn<Promise<void>, []>()
       .mockRejectedValueOnce(new Error('first provisional lock failed'))

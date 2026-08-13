@@ -171,6 +171,12 @@ export class WorkspacesService {
               if (deadline <= now) delete cooldowns[candidate];
             }
             cooldowns[slug] = this.creationLimiter.recreateAfter();
+            if (t.walletTagRecoveries) {
+              delete t.walletTagRecoveries[slug];
+              if (Object.keys(t.walletTagRecoveries).length === 0) {
+                delete t.walletTagRecoveries;
+              }
+            }
           });
         } catch (err) {
           this.logger.error(`workspace ledger removal failed for ${tenant.id}/${slug}: ${String(err)}`);

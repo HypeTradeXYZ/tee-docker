@@ -14,6 +14,7 @@ import { AsyncMutex, KeyedMutex } from './async-mutex';
 import { SESSION_CAPACITY, type SessionCapacity } from './session-capacity';
 import { RpcBoundaryService } from './rpc-boundary.service';
 import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account-unlock-limiter';
+import { WalletTagsService } from './wallet-tags.service';
 
 export interface TokenLease {
   readonly jti: string;
@@ -107,6 +108,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     @Optional() private readonly rpcBoundary?: RpcBoundaryService,
     @Optional() @Inject(ACCOUNT_CUSTODY_CLOCK) clock?: AccountCustodyClock,
     @Optional() @Inject(ACCOUNT_CUSTODY_SCHEDULER) scheduler?: AccountCustodyScheduler,
+    @Optional() private readonly walletTags?: WalletTagsService,
   ) {
     this.#now = clock ?? Date.now;
     this.#accountScheduler = scheduler ?? systemAccountCustodyScheduler;
@@ -282,6 +284,11 @@ export class SessionRegistry implements OnApplicationShutdown {
           workspaceSlug,
           tenant.rpc,
         );
+
+        // A prior tag replacement may have stopped between core's individual
+        // account writes. Restore its durable old-value snapshot before this
+        // handle can receive a lease.
+        await this.walletTags?.recoverWorkspace(session);
 
         // A fresh handle must agree with the ledger before it is published.
         await this.syncWalletCount(session);

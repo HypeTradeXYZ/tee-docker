@@ -7,6 +7,7 @@ import type { Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
 import { SessionRegistry, type Session } from './session.registry';
+import { WalletTagsService } from './wallet-tags.service';
 import {
   accountView,
   addressView,
@@ -26,7 +27,7 @@ const CreateAccount = z.object({
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) });
 const ImportKey = z.object({ privateKey: z.string().min(1) });
-const SetTags = z.object({ tags: z.array(z.string().min(1).max(64)).max(32) });
+const SetTags = z.object({ tags: z.array(z.string()).max(32) }).strict();
 
 @Controller('accounts')
 @UseGuards(WorkspaceGuard, ScopesGuard)
@@ -34,6 +35,7 @@ export class AccountsController {
   constructor(
     private readonly accounts: AccountsService,
     private readonly sessions: SessionRegistry,
+    private readonly walletTags: WalletTagsService,
   ) {}
 
   @Post()
@@ -142,8 +144,7 @@ export class AccountsController {
     const wallet = account.wallets.byId(Number(id));
     if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
 
-    await wallet.clearTags();
-    for (const tag of parsed.data.tags) await wallet.addTag(tag);
+    await this.walletTags.replace(session, wallet, parsed.data.tags);
     return { wallet: walletView(wallet) };
   }
 }
