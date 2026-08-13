@@ -37,6 +37,40 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
 }
 
 describe('SessionRegistry close failure', () => {
+  it('retains a failed provisional handle and closes it before a successor provision', async () => {
+    const lock = jest.fn<Promise<void>, []>()
+      .mockRejectedValueOnce(new Error('first provisional lock failed'))
+      .mockRejectedValueOnce(new Error('cleanup retry failed'))
+      .mockResolvedValue(undefined);
+    const handle = { accounts: [], lock } as unknown as Workspace;
+    const state = {
+      close: async () => undefined,
+      tenant: () => ({ walletTotal: 0, workspaces: [] }),
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-provision-lock-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      testStorage,
+    );
+    const tenant = tenantFixture();
+
+    await expect(
+      registry.provisionWorkspace(tenant, 'desk-a', async (retain) => {
+        retain(handle);
+        return 'created';
+      }),
+    ).rejects.toBeInstanceOf(AggregateError);
+    expect(registry.workspaceCount).toBe(1);
+
+    await expect(
+      registry.provisionWorkspace(tenant, 'desk-a', async () => 'successor'),
+    ).resolves.toBe('successor');
+    expect(lock).toHaveBeenCalledTimes(3);
+    expect(registry.workspaceCount).toBe(0);
+    await registry.onApplicationShutdown();
+  });
+
   it('drains a directly in-flight provision before releasing state ownership', async () => {
     let entered!: () => void;
     let release!: () => void;
@@ -56,7 +90,7 @@ describe('SessionRegistry close failure', () => {
       testStorage,
     );
 
-    const provision = registry.provisionWorkspace('acme', 'desk-a', async () => {
+    const provision = registry.provisionWorkspace(tenantFixture(), 'desk-a', async () => {
       entered();
       await provisionBarrier;
       return 'created';
@@ -601,7 +635,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
     ).rejects.toThrow('rm failed');
     expect(registry.workspaceCount).toBe(1);
     await expect(
-      registry.provisionWorkspace('acme', 'desk-a', async () => undefined),
+      registry.provisionWorkspace(tenant, 'desk-a', async () => undefined),
     ).rejects.toMatchObject({ code: 'TEE_WORKSPACE_IN_USE' });
 
     await registry.create(tenant, 'desk-b', 'password', ['read']);
@@ -653,7 +687,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
   });
 
   it('serializes provisioning behind the complete delete callback', async () => {
-    const { registry } = fixture([]);
+    const { registry, tenant } = fixture([]);
     let releaseDelete!: () => void;
     let deletionEntered!: () => void;
     const deleteBarrier = new Promise<void>((resolve) => {
@@ -670,7 +704,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
       events.push('delete-end');
     });
     await entered;
-    const provisioning = registry.provisionWorkspace('acme', 'desk-a', async () => {
+    const provisioning = registry.provisionWorkspace(tenant, 'desk-a', async () => {
       events.push('provision');
     });
     await Promise.resolve();

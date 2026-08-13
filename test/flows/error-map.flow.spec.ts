@@ -36,7 +36,8 @@ describe('error-map', () => {
       status: 502,
       code: 'rpc_rejected',
       exposeDetails: false,
-      exposeMessage: false,
+      exposeMessage: true,
+      publicMessage: 'the RPC endpoint rejected the request',
     });
   });
 
@@ -71,6 +72,20 @@ describe('error-map', () => {
         },
       }),
     ).toThrow();
+
+    expect(() =>
+      ErrorsConfigSchema.parse({
+        ...config,
+        mappings: {
+          ...config.mappings,
+          RPC_REJECTED: {
+            status: 502,
+            code: 'rpc_rejected',
+            exposeMessage: true,
+          },
+        },
+      }),
+    ).toThrow('a 5xx exposeMessage mapping requires a fixed publicMessage');
   });
 
   it('degrades an unknown code to the default status instead of throwing', () => {
@@ -95,6 +110,7 @@ describe('error-map', () => {
     //   TEE_SESSION_CAPACITY -> names only the exhausted scope and configured limit
     //   TEE_ACCOUNT_UNLOCK_RATE -> names only a finite retry delay
     //   TEE_RPC_CAPACITY -> names only the exhausted scope and configured limit
+    //   workspace creation/cooldown limits -> name only a finite retry delay
     expect(new Set(optedIn)).toEqual(
       new Set([
         'TEE_INVALID_SLUG',
@@ -105,13 +121,27 @@ describe('error-map', () => {
         'TEE_SESSION_CAPACITY',
         'TEE_ACCOUNT_UNLOCK_RATE',
         'TEE_RPC_CAPACITY',
+        'TEE_WORKSPACE_CREATE_RATE',
+        'TEE_WORKSPACE_RECREATE_COOLDOWN',
       ]),
     );
   });
 
-  it('exposes a 5xx message only for the fixed balance capability response', () => {
+  it('exposes 5xx messages only through the reviewed fixed-message allowlist', () => {
     const optedIn = service.mappedCodes.filter((c) => service.resolve(c).exposeMessage);
-    expect(optedIn).toEqual(['TEE_BALANCES_UNAVAILABLE']);
+    expect(new Set(optedIn)).toEqual(new Set([
+      'DISK_FULL',
+      'TX_SUBMIT_FAILED',
+      'TX_TIMEOUT',
+      'RPC_UNREACHABLE',
+      'RPC_REJECTED',
+      'UNSUPPORTED_OP',
+      'TEE_RPC_UNREACHABLE',
+      'TEE_BALANCES_UNAVAILABLE',
+    ]));
+    for (const code of optedIn) {
+      expect(service.resolve(code).publicMessage).toEqual(expect.any(String));
+    }
   });
 
   it('uses a sane status for every mapping', () => {

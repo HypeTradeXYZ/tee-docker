@@ -27,6 +27,16 @@ export type AccountCustody =
 
 export const ACCOUNT_CUSTODY_CLOCK = Symbol('ACCOUNT_CUSTODY_CLOCK');
 export type AccountCustodyClock = () => number;
+export const ACCOUNT_CUSTODY_SCHEDULER = Symbol('ACCOUNT_CUSTODY_SCHEDULER');
+export interface AccountCustodyScheduler {
+  set(callback: () => void, delayMs: number): NodeJS.Timeout;
+  clear(timer: NodeJS.Timeout): void;
+}
+
+export const systemAccountCustodyScheduler: AccountCustodyScheduler = {
+  set: (callback, delayMs) => setTimeout(callback, delayMs),
+  clear: (timer) => clearTimeout(timer),
+};
 
 export interface Session {
   readonly sid: string;
@@ -47,6 +57,8 @@ export interface Session {
   readonly accounts: Map<string, AccountCustody>;
   /** Explicit-unlock failure state, shared by every lease on this session. */
   readonly unlockFailures: Map<string, AccountUnlockFailure>;
+  accountTimer: NodeJS.Timeout | null;
+  accountTimerGeneration: number;
 }
 
 export interface SessionGrant {
@@ -61,9 +73,12 @@ interface WorkspaceEntry {
   readonly workspaceSlug: string;
   state: 'opening' | 'active' | 'closing' | 'deleting';
   session?: Session;
+  /** Temporary core handle retained while tenant-tier provisioning settles. */
+  provisioningHandle?: Workspace;
 }
 
 const SWEEP_INTERVAL_MS = 30_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /**
  * Owns the one wative-core handle allowed for each tenant/workspace in this
@@ -77,10 +92,12 @@ export class SessionRegistry implements OnApplicationShutdown {
   readonly #workspaces = new Map<string, WorkspaceEntry>();
   readonly #lifecycle = new KeyedMutex();
   readonly #lifecycleJobs = new Set<Promise<unknown>>();
+  readonly #accountExpiryTasks = new Set<Promise<void>>();
   #sweeper: NodeJS.Timeout | null = null;
   #sweepInFlight: Promise<void> | null = null;
   #shuttingDown = false;
   readonly #now: AccountCustodyClock;
+  readonly #accountScheduler: AccountCustodyScheduler;
 
   constructor(
     @Inject(PATHS) private readonly paths: Paths,
@@ -89,8 +106,10 @@ export class SessionRegistry implements OnApplicationShutdown {
     private readonly storage: WorkspaceStorageService,
     @Optional() private readonly rpcBoundary?: RpcBoundaryService,
     @Optional() @Inject(ACCOUNT_CUSTODY_CLOCK) clock?: AccountCustodyClock,
+    @Optional() @Inject(ACCOUNT_CUSTODY_SCHEDULER) scheduler?: AccountCustodyScheduler,
   ) {
     this.#now = clock ?? Date.now;
+    this.#accountScheduler = scheduler ?? systemAccountCustodyScheduler;
     this.#sweeper = setInterval(() => {
       void this.runSweep().catch((err) => {
         this.logger.error(`session sweep failed: ${String(err)}`);
@@ -103,6 +122,15 @@ export class SessionRegistry implements OnApplicationShutdown {
     this.#shuttingDown = true;
     if (this.#sweeper) clearInterval(this.#sweeper);
     const failures: unknown[] = [];
+    for (const session of this.#sessions.values()) this.clearAccountTimer(session);
+    if (this.#accountExpiryTasks.size > 0) {
+      const timerTasks = await Promise.allSettled([...this.#accountExpiryTasks]);
+      failures.push(
+        ...timerTasks
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason),
+      );
+    }
     // A sweep may already own or be queued for a session mutex. Let it finish
     // before locking handles so no cleanup touches core after custody drains.
     if (this.#sweepInFlight) {
@@ -129,6 +157,7 @@ export class SessionRegistry implements OnApplicationShutdown {
         this.#lifecycle.runExclusive(key, async () => {
           const entry = this.#workspaces.get(key);
           if (entry?.session) await this.closeEntry(entry);
+          else if (entry?.provisioningHandle) await this.closeProvisioningEntry(entry);
         }),
       ),
     );
@@ -162,6 +191,10 @@ export class SessionRegistry implements OnApplicationShutdown {
       let entry = this.#workspaces.get(key);
       if (entry?.state === 'deleting') {
         throw new TeeError('TEE_WORKSPACE_NOT_FOUND', `workspace "${workspaceSlug}" not found`);
+      }
+      if (entry?.state === 'closing' && entry.provisioningHandle) {
+        await this.closeProvisioningEntry(entry);
+        entry = undefined;
       }
       if (entry?.state === 'closing' && entry.session) {
         // A prior lock failure deliberately leaves a tombstone. Retry it, but
@@ -229,6 +262,8 @@ export class SessionRegistry implements OnApplicationShutdown {
             unusable: false,
             accounts: new Map(),
             unlockFailures: new Map(),
+            accountTimer: null,
+            accountTimerGeneration: 0,
           };
           // Attach the returned handle before any fallible post-open work. If
           // storage validation, reconciliation, or shutdown cleanup fails,
@@ -279,17 +314,56 @@ export class SessionRegistry implements OnApplicationShutdown {
    * The callback must not call another lifecycle-acquiring registry method.
    */
   async provisionWorkspace<T>(
-    tenantId: string,
+    tenant: Tenant,
     workspaceSlug: string,
-    provision: () => Promise<T>,
+    provision: (retainHandle: (handle: Workspace) => void) => Promise<T>,
   ): Promise<T> {
+    const tenantId = tenant.id;
     const key = workspaceKey(tenantId, workspaceSlug);
     return this.trackLifecycleJob(this.#lifecycle.runExclusive(key, async () => {
       if (this.#shuttingDown) throw expired('application is shutting down');
-      if (this.#workspaces.has(key)) {
+      let existing = this.#workspaces.get(key);
+      if (existing?.state === 'closing' && existing.provisioningHandle) {
+        await this.closeProvisioningEntry(existing);
+        existing = undefined;
+      }
+      if (existing) {
         throw new TeeError('TEE_WORKSPACE_IN_USE', `workspace "${workspaceSlug}" is in use`);
       }
-      return provision();
+      this.assertHandleCapacity(tenant);
+      const entry: WorkspaceEntry = {
+        key,
+        tenantId,
+        workspaceSlug,
+        state: 'opening',
+      };
+      this.#workspaces.set(key, entry);
+      try {
+        const result = await provision((handle) => {
+          if (entry.provisioningHandle && entry.provisioningHandle !== handle) {
+            throw new Error(`provisioning attempted to replace core handle for ${key}`);
+          }
+          entry.provisioningHandle = handle;
+        });
+        if (entry.provisioningHandle) await this.closeProvisioningEntry(entry);
+        else if (this.#workspaces.get(key) === entry) this.#workspaces.delete(key);
+        return result;
+      } catch (error) {
+        if (!entry.provisioningHandle) {
+          if (this.#workspaces.get(key) === entry) this.#workspaces.delete(key);
+          throw error;
+        }
+        entry.state = 'closing';
+        try {
+          await this.closeProvisioningEntry(entry);
+        } catch (lockError) {
+          throw new AggregateError(
+            [error, lockError],
+            `provisioning and core-handle cleanup both failed for ${key}`,
+          );
+        }
+        throw error;
+      }
     }));
   }
 
@@ -313,6 +387,10 @@ export class SessionRegistry implements OnApplicationShutdown {
       }
 
       let entry = this.#workspaces.get(key);
+      if (entry?.provisioningHandle) {
+        await this.closeProvisioningEntry(entry);
+        entry = undefined;
+      }
       if (entry?.state !== 'deleting') {
         if (entry && !force && this.entryInUse(entry)) {
           throw new TeeError('TEE_WORKSPACE_IN_USE', `workspace "${workspaceSlug}" is in use`);
@@ -423,7 +501,30 @@ export class SessionRegistry implements OnApplicationShutdown {
           if (this.#sessions.get(session.sid) === session) session.unusable = true;
           throw expired('session is closing');
         }
-        return fn();
+        let result: T | undefined;
+        let operationFailed = false;
+        let operationError: unknown;
+        try {
+          result = await fn();
+        } catch (err) {
+          operationFailed = true;
+          operationError = err;
+        }
+        try {
+          this.expireDueAccounts(session, this.#now());
+        } catch (expiryError) {
+          if (operationFailed) {
+            throw new AggregateError(
+              [operationError, expiryError],
+              'operation and account zeroization both failed',
+            );
+          }
+          throw expiryError;
+        } finally {
+          this.scheduleAccountTimer(session);
+        }
+        if (operationFailed) throw operationError;
+        return result as T;
       });
     } finally {
       if (session.unusable) this.destroyInBackground(session.sid, 'unusable session');
@@ -446,7 +547,12 @@ export class SessionRegistry implements OnApplicationShutdown {
     const custody = session.accounts.get(slug);
     if (custody?.state === 'live') {
       if (now < custody.expiresAt && !account.locked) return account;
-      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+      if (now < custody.expiresAt && account.locked) {
+        session.accounts.set(slug, { state: 'locked', reason: 'manual' });
+        this.scheduleAccountTimer(session);
+        throw accountLocked(slug);
+      }
+      this.expireAccount(session, slug, account);
       throw accountLocked(slug);
     }
     if (custody?.state === 'locked') throw accountLocked(slug);
@@ -460,7 +566,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       this.failClosedAccountUnlock(session, slug, account, wasLocked);
       throw err;
     }
-    this.recordAccountExposure(session, slug, now);
+    this.recordAccountExposure(session, slug, this.#now());
     return account;
   }
 
@@ -472,29 +578,44 @@ export class SessionRegistry implements OnApplicationShutdown {
     idleSec: number,
   ): Promise<void> {
     const account = this.findAccount(session, slug);
-    const before = session.accounts.get(slug);
+    let before = session.accounts.get(slug);
+    const admissionNow = this.#now();
+    if (before?.state === 'live' && admissionNow >= before.expiresAt) {
+      this.expireAccount(session, slug, account);
+      before = session.accounts.get(slug);
+    }
     const liveDeadline = before?.state === 'live' ? before.expiresAt : undefined;
     const wasLocked = account.locked;
-    await limiter.verify(session, slug, () => {
+    await limiter.verify(session, slug, async () => {
       this.touch(session, idleSec);
-      return Promise.resolve(account.tryUnlock(password)).catch((err) => {
+      try {
+        await account.tryUnlock(password);
+      } catch (err) {
         this.failClosedAccountUnlock(session, slug, account, wasLocked, before);
         throw err;
-      });
+      }
     });
     const now = this.#now();
     if (this.sessionExpired(session, now)) {
-      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
       session.unusable = true;
+      try {
+        this.expireAccount(session, slug, account);
+      } catch (lockError) {
+        throw new AggregateError(
+          [expired('session expired during account unlock'), lockError],
+          'session expired and account zeroization failed',
+        );
+      }
       throw expired('session expired during account unlock');
     }
     if (liveDeadline !== undefined) {
       if (now >= liveDeadline) {
-        session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+        this.expireAccount(session, slug, account);
         throw accountLocked(slug);
       }
       // Re-verifying an already-live account does not renew bearer custody.
       session.accounts.set(slug, { state: 'live', expiresAt: liveDeadline });
+      this.scheduleAccountTimer(session);
       return;
     }
     this.recordAccountExposure(session, slug, now);
@@ -509,21 +630,32 @@ export class SessionRegistry implements OnApplicationShutdown {
       session.unusable = true;
       throw err;
     }
+    this.scheduleAccountTimer(session);
   }
 
   /** Start custody for an account that core has just returned unlocked. */
   recordAccountExposure(session: Session, slug: string, now = this.#now()): void {
     if (this.sessionExpired(session, now)) {
-      session.accounts.set(slug, { state: 'locked', reason: 'expired' });
       session.unusable = true;
+      const sessionError = expired('account exposure began after session expiry');
+      try {
+        this.expireAccount(session, slug, this.findAccount(session, slug));
+      } catch (lockError) {
+        throw new AggregateError(
+          [sessionError, lockError],
+          'account exposure crossed session expiry and zeroization failed',
+        );
+      }
       throw expired('account exposure began after session expiry');
     }
     session.accounts.set(slug, { state: 'live', expiresAt: this.accountExpiry(session, now) });
+    this.scheduleAccountTimer(session);
   }
 
   clearAccountCustody(session: Session, slug: string): void {
     session.accounts.delete(slug);
     session.unlockFailures.delete(slug);
+    this.scheduleAccountTimer(session);
   }
 
   /** Authoritatively recount one singleton handle and persist its tenant total. */
@@ -549,6 +681,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
 
     entry.state = 'closing';
+    this.clearAccountTimer(session);
     this.#sessions.delete(session.sid);
     session.leases.clear();
     this.rpcBoundary?.revokeWorkspace(session.tenantId, session.workspaceSlug);
@@ -564,6 +697,24 @@ export class SessionRegistry implements OnApplicationShutdown {
     });
     if (this.#workspaces.get(entry.key) === entry) this.#workspaces.delete(entry.key);
     this.logger.log(`session closed: ${session.tenantId}/${session.workspaceSlug} (${session.sid})`);
+  }
+
+  private async closeProvisioningEntry(entry: WorkspaceEntry): Promise<void> {
+    const handle = entry.provisioningHandle;
+    if (!handle) {
+      if (this.#workspaces.get(entry.key) === entry) this.#workspaces.delete(entry.key);
+      return;
+    }
+    entry.state = 'closing';
+    try {
+      await handle.lock();
+    } catch (err) {
+      this.logger.error(
+        `provisioning lock failed for ${entry.tenantId}/${entry.workspaceSlug}: ${String(err)}`,
+      );
+      throw err;
+    }
+    if (this.#workspaces.get(entry.key) === entry) this.#workspaces.delete(entry.key);
   }
 
   private addLease(session: Session, scopes: readonly string[]): SessionGrant {
@@ -610,11 +761,11 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
   }
 
-  private touch(session: Session, idleSec: number, now = Date.now()): void {
+  private touch(session: Session, idleSec: number, now = this.#now()): void {
     session.idleExpiresAt = Math.min(now + idleSec * 1000, session.absoluteExpiresAt);
   }
 
-  private sessionExpired(session: Session, now = Date.now()): boolean {
+  private sessionExpired(session: Session, now = this.#now()): boolean {
     return now >= session.absoluteExpiresAt || now >= session.idleExpiresAt;
   }
 
@@ -646,6 +797,89 @@ export class SessionRegistry implements OnApplicationShutdown {
         session.unusable = true;
       }
     }
+    this.scheduleAccountTimer(session);
+  }
+
+  private expireAccount(session: Session, slug: string, account: Account): void {
+    session.accounts.set(slug, { state: 'locked', reason: 'expired' });
+    try {
+      account.lock();
+    } catch (err) {
+      session.unusable = true;
+      throw err;
+    } finally {
+      this.scheduleAccountTimer(session);
+    }
+  }
+
+  private expireDueAccounts(session: Session, now: number): void {
+    const failures: unknown[] = [];
+    for (const [slug, custody] of session.accounts) {
+      if (custody.state !== 'live' || now < custody.expiresAt) continue;
+      const account = session.handle.accounts.bySlug(asSlug(slug));
+      if (!account) {
+        session.accounts.delete(slug);
+        continue;
+      }
+      try {
+        this.expireAccount(session, slug, account);
+      } catch (err) {
+        failures.push(err);
+      }
+    }
+    if (failures.length > 0) {
+      session.unusable = true;
+      throw new AggregateError(failures, `failed to lock ${failures.length} expired account(s)`);
+    }
+  }
+
+  private scheduleAccountTimer(session: Session): void {
+    this.clearAccountTimer(session);
+    if (
+      this.#shuttingDown
+      || session.unusable
+      || this.#sessions.get(session.sid) !== session
+    ) return;
+    let earliest = Number.POSITIVE_INFINITY;
+    for (const custody of session.accounts.values()) {
+      if (custody.state === 'live') earliest = Math.min(earliest, custody.expiresAt);
+    }
+    if (!Number.isFinite(earliest)) return;
+    const delay = Math.min(Math.max(0, earliest - this.#now()), MAX_TIMER_DELAY_MS);
+    const generation = ++session.accountTimerGeneration;
+    session.accountTimer = this.#accountScheduler.set(
+      () => this.startAccountExpiryTask(session, generation),
+      delay,
+    );
+    session.accountTimer.unref?.();
+  }
+
+  private clearAccountTimer(session: Session): void {
+    session.accountTimerGeneration += 1;
+    if (!session.accountTimer) return;
+    this.#accountScheduler.clear(session.accountTimer);
+    session.accountTimer = null;
+  }
+
+  private startAccountExpiryTask(session: Session, generation: number): void {
+    if (generation !== session.accountTimerGeneration || !session.accountTimer) return;
+    session.accountTimer = null;
+    const task = session.mutex.runExclusive(async () => {
+      if (
+        this.#shuttingDown
+        || session.unusable
+        || this.#sessions.get(session.sid) !== session
+      ) return;
+      this.expireDueAccounts(session, this.#now());
+      this.scheduleAccountTimer(session);
+    });
+    this.#accountExpiryTasks.add(task);
+    void task
+      .catch((err) => {
+        this.logger.error(`account expiry failed for session ${session.sid}: ${String(err)}`);
+        this.destroyInBackground(session.sid, 'account expiry failure');
+      })
+      .finally(() => this.#accountExpiryTasks.delete(task));
   }
 
   private async sweep(): Promise<void> {
@@ -668,20 +902,20 @@ export class SessionRegistry implements OnApplicationShutdown {
 
         await session.mutex.runExclusive(() => {
           if (this.#sessions.get(session.sid) !== session || session.unusable) return;
-          for (const [slug, custody] of session.accounts) {
-            if (custody.state !== 'live' || now < custody.expiresAt) continue;
-            session.accounts.set(slug, { state: 'locked', reason: 'expired' });
-            try {
-              session.handle.accounts.bySlug(asSlug(slug))?.lock();
-            } catch {
-              /* the account may already be gone; the map entry is what matters */
-            }
-          }
+          this.expireDueAccounts(session, this.#now());
+          this.scheduleAccountTimer(session);
         });
       } catch (err) {
         // A failed singleton lock keeps its capacity-charged tombstone, but it
         // must not prevent unrelated expired sessions from being reaped.
         failures.push(err);
+        if (session.unusable) {
+          try {
+            await this.destroy(session.sid);
+          } catch (closeError) {
+            failures.push(closeError);
+          }
+        }
       }
     }
     if (failures.length > 0) {

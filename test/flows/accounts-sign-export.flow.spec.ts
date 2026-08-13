@@ -251,17 +251,28 @@ describe('accounts-sign-export-flow', () => {
       expect(() => unseal(res.body.sealed, wrong)).toThrow();
     });
 
-    it('seals a wallet private key', async () => {
+    it('seals and labels the explicitly selected EVM and SVM private keys', async () => {
       const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
       const id = (await http().get(`/v1/accounts/${slug}/wallets`).set(bearer())).body.wallets[0].id;
 
-      const res = await http()
+      const exported = await Promise.all(
+        (['evm', 'svm'] as const).map((vm) =>
+          http()
+            .post(`/v1/accounts/${slug}/wallets/${id}/export?vm=${vm}`)
+            .set(bearer())
+            .expect(200),
+        ),
+      );
+
+      const keys = exported.map((res) => unseal(res.body.sealed, recipient.privateKey));
+      expect(exported.map((res) => res.body.vm)).toEqual(['evm', 'svm']);
+      expect(keys.every((key) => key.length > MIN_PRIVATE_KEY_CHARS)).toBe(true);
+      expect(keys[0]).not.toBe(keys[1]);
+
+      await http()
         .post(`/v1/accounts/${slug}/wallets/${id}/export`)
         .set(bearer())
-        .expect(200);
-
-      const pk = unseal(res.body.sealed, recipient.privateKey);
-      expect(pk.length).toBeGreaterThan(MIN_PRIVATE_KEY_CHARS);
+        .expect(400);
     });
 
     it('refuses without the export scope', async () => {

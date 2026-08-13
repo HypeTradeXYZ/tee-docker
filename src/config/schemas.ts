@@ -23,7 +23,7 @@ export const TenantSchema = z.object({
   /** Absent disables export for this tenant. Doubles as the enable flag. */
   exportPublicKey: z
     .string()
-    .regex(/^x25519:[A-Za-z0-9+/]+={0,2}$/, 'expected "x25519:<base64>"')
+    .regex(/^x25519:[A-Za-z0-9+/]{43}=$/, 'expected a canonical X25519 public key')
     .optional(),
   limits: LimitsSchema,
   ttl: TtlSchema.optional(),
@@ -57,7 +57,24 @@ export const ErrorMappingSchema = z.object({
   code: z.string().min(1),
   exposeDetails: z.boolean().optional(),
   exposeMessage: z.boolean().optional(),
-}).strict();
+  /** Reviewed fixed text; never a provider/dependency exception message. */
+  publicMessage: z.string().min(1).max(200).optional(),
+}).strict().superRefine((mapping, ctx) => {
+  if (mapping.status >= 500 && mapping.exposeMessage === true && !mapping.publicMessage) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['publicMessage'],
+      message: 'a 5xx exposeMessage mapping requires a fixed publicMessage',
+    });
+  }
+  if (mapping.publicMessage !== undefined && mapping.exposeMessage !== true) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['publicMessage'],
+      message: 'publicMessage requires exposeMessage: true',
+    });
+  }
+});
 
 export const ErrorsConfigSchema = z.object({
   defaultStatus: z.number().int().min(100).max(599).default(500),
@@ -74,6 +91,9 @@ export const WorkspaceStateSchema = z.object({
 export const TenantStateSchema = z.object({
   walletTotal: z.number().int().nonnegative(),
   workspaces: z.array(WorkspaceStateSchema),
+  /** Persisted absolute millisecond deadlines for recently deleted slugs. */
+  workspaceCooldowns: z.record(z.string().regex(SLUG_RE), z.number().int().nonnegative().safe())
+    .optional(),
 });
 
 export const ServiceStateSchema = z.object({

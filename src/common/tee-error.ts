@@ -28,6 +28,8 @@ export const TEE_ERROR_CODES = [
   'TEE_ACCOUNT_UNLOCK_RATE',
   'TEE_RPC_CAPACITY',
   'TEE_BALANCES_UNAVAILABLE',
+  'TEE_WORKSPACE_CREATE_RATE',
+  'TEE_WORKSPACE_RECREATE_COOLDOWN',
 ] as const;
 
 export type TeeErrorCode = (typeof TEE_ERROR_CODES)[number];

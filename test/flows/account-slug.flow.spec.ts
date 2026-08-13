@@ -132,7 +132,7 @@ describe('account-slug-flow', () => {
       .expect(200);
     const pkWalletId = pkWallets.body.wallets[0].id as number;
     await http()
-      .post(`/v1/accounts/${pkSlug}/wallets/${pkWalletId}/export`)
+      .post(`/v1/accounts/${pkSlug}/wallets/${pkWalletId}/export?vm=evm`)
       .set(bearer())
       .expect(200);
     await http().delete(`/v1/accounts/${hdSlug}`).set(bearer()).expect(204);

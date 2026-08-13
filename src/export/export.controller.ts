@@ -1,5 +1,6 @@
-import { Controller, HttpCode, Logger, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, HttpCode, Logger, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
+import { WativeError } from 'wative-core';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { TeeError } from '../common/tee-error';
@@ -13,10 +14,11 @@ const WalletId = z
   .regex(/^(0|[1-9]\d*)$/)
   .transform(Number)
   .pipe(z.number().int().nonnegative().safe());
+const ExportVm = z.enum(['evm', 'svm']);
 
 type ExportTarget =
   | { readonly kind: 'mnemonic' }
-  | { readonly kind: 'privateKey'; readonly walletId: number };
+  | { readonly kind: 'privateKey'; readonly walletId: number; readonly vm: 'evm' | 'svm' };
 
 /**
  * Export — the highest-consequence route in the service.
@@ -63,30 +65,43 @@ export class ExportController {
     @CurrentTokenTenant() tenant: Tenant,
     @Param('slug') slug: string,
     @Param('id') id: string,
-  ): Promise<{ kind: 'privateKey'; account: string; walletId: number; sealed: SealedBlob }> {
+    @Query('vm') vm: unknown,
+  ): Promise<{
+    kind: 'privateKey'; account: string; walletId: number; vm: 'evm' | 'svm'; sealed: SealedBlob;
+  }> {
     const accountSlug = assertValidAccountSlug(slug);
     const parsedId = WalletId.safeParse(id);
     if (!parsedId.success) throw new TeeError('TEE_INVALID_SLUG', 'wallet id must be an integer');
     const walletId = parsedId.data;
+    const parsedVm = ExportVm.safeParse(vm);
+    if (!parsedVm.success) {
+      throw new WativeError('PARAMETER_ERROR', 'query parameter vm must be evm or svm');
+    }
+    const selectedVm = parsedVm.data;
 
     return this.audited(
       session,
       tenant,
       accountSlug,
-      { kind: 'privateKey', walletId },
+      { kind: 'privateKey', walletId, vm: selectedVm },
       async () => {
         const account = await this.sessions.requireAccount(session, accountSlug);
         const wallet = account.wallets.byId(walletId);
         if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${walletId} not found`);
 
-        const vm = wallet.addresses[0]?.vm;
-        if (!vm) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${walletId} has no address`);
+        if (!wallet.addresses.some((address) => address.vm === selectedVm)) {
+          throw new WativeError(
+            'PARAMETER_ERROR',
+            `wallet ${walletId} has no ${selectedVm} address`,
+          );
+        }
 
         return {
           kind: 'privateKey',
           account: String(account.slug),
           walletId: wallet.id,
-          sealed: seal(wallet.dumpPrivateKey(vm), tenant.exportPublicKey as string),
+          vm: selectedVm,
+          sealed: seal(wallet.dumpPrivateKey(selectedVm), tenant.exportPublicKey as string),
         };
       },
     );
@@ -105,17 +120,25 @@ export class ExportController {
     operation: () => Promise<T>,
   ): Promise<T> {
     this.audit('ATTEMPT', session, tenant, accountSlug, target);
+    let result: T;
     try {
       if (!tenant.exportEnabled || !tenant.exportPublicKey) {
         throw new TeeError('TEE_EXPORT_DISABLED', 'no exportPublicKey registered for this tenant');
       }
-      const result = await operation();
-      this.audit('SUCCESS', session, tenant, accountSlug, target);
-      return result;
+      result = await operation();
     } catch (err) {
-      this.audit('FAILURE', session, tenant, accountSlug, target);
+      try {
+        this.audit('FAILURE', session, tenant, accountSlug, target);
+      } catch {
+        // Preserve the actual operation failure. The terminal audit was still
+        // attempted; a broken logging sink must not relabel the API outcome.
+      }
       throw err;
     }
+    // A logging-sink failure is not an operation failure and must not produce
+    // a contradictory FAILURE after SUCCESS was already attempted.
+    this.audit('SUCCESS', session, tenant, accountSlug, target);
+    return result;
   }
 
   private audit(
@@ -133,6 +156,7 @@ export class ExportController {
       accountSlug,
       target: target.kind,
       ...(target.kind === 'privateKey' ? { walletId: target.walletId } : {}),
+      ...(target.kind === 'privateKey' ? { vm: target.vm } : {}),
     };
     if (outcome === 'FAILURE') this.logger.warn(record);
     else this.logger.log(record);

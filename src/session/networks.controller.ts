@@ -77,17 +77,48 @@ export class NetworksController {
     // Network fields are readonly; the documented update path is to build a
     // replacement from the existing one and hand it to the collection.
     const previous = String(network.rpcUrl ?? '');
+    const replacement = new Network({ ...network, rpcUrl: relayUrl });
     try {
-      await session.handle.networks.update(
-        new Network({ ...network, rpcUrl: relayUrl }),
-      );
-      this.rpcBoundary.rebindNetwork(session.handle, String(network.slug));
-      this.rpcBoundary.revokeCapability(previous);
+      await session.handle.networks.update(replacement);
     } catch (err) {
       this.rpcBoundary.revokeCapability(relayUrl);
       throw err;
     }
 
-    return { network: String(network.slug), rpcSource: 'tenant' };
+    let rpcSource: RpcSource;
+    try {
+      this.rpcBoundary.rebindNetwork(session.handle, String(network.slug));
+      rpcSource = resolveRpc(
+        session,
+        tenant,
+        String(network.slug),
+        this.rpcBoundary,
+      ).source;
+    } catch (err) {
+      // Once core persisted the replacement, never revoke its capability while
+      // leaving the registry pointed at it. Roll back the Network first; if
+      // rollback itself fails, retire the singleton through the interceptor.
+      try {
+        await session.handle.networks.update(network);
+        this.rpcBoundary.rebindNetwork(session.handle, String(network.slug));
+        this.rpcBoundary.revokeCapability(relayUrl);
+      } catch (rollbackError) {
+        session.unusable = true;
+        throw new AggregateError([err, rollbackError], 'RPC update rollback failed');
+      }
+      throw err;
+    }
+
+    // Keep both immutable capabilities active through authoritative resolve;
+    // retire the old one only after the new state is proven readable.
+    try {
+      this.rpcBoundary.revokeCapability(previous);
+    } catch {
+      // Revocation is currently total/non-throwing. If that implementation
+      // changes, retaining an inactive old capability is safer than undoing a
+      // successfully persisted and resolved update.
+    }
+
+    return { network: String(network.slug), rpcSource };
   }
 }

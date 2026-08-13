@@ -17,13 +17,17 @@ const privateKey = (digit: string) => `0x${digit.repeat(64)}`;
 
 describe('wave-4 existing-only unlock and safe deletion', () => {
   let harness: Harness;
+  let now = 1_000;
   const http = () => request(harness.app.getHttpServer());
   const workspacePath = (slug: string) =>
     join(harness.baseDir, 'data', DEFAULT_TENANT.id, slug);
   const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
   beforeAll(async () => {
-    harness = await boot();
+    harness = await boot({
+      env: { TEE_WORKSPACE_CREATE_RATE_LIMIT: '1000' },
+      workspaceCreationClock: () => now,
+    });
   });
 
   afterAll(async () => {
@@ -101,6 +105,16 @@ describe('wave-4 existing-only unlock and safe deletion', () => {
     }
     expect(existsSync(workspacePath('desk-a'))).toBe(false);
 
+    const cooled = await http()
+      .post('/v1/workspaces')
+      .set(authHeaders())
+      .send({ slug: 'desk-a', password: PASSWORD })
+      .expect(429);
+    expect(cooled.body.error).toMatchObject({
+      code: 'workspace_recreation_cooldown',
+      details: { retryAfterSec: 60 },
+    });
+    now += 60_000;
     await create('desk-a');
     const replacement = await mint('desk-a');
     expect(decode(replacement).sid).not.toBe(decode(first).sid);
@@ -110,6 +124,7 @@ describe('wave-4 existing-only unlock and safe deletion', () => {
       .delete('/v1/workspaces/desk-a?force=true')
       .set(authHeaders())
       .expect(204);
+    now += 60_000;
   });
 
   it('never creates or repairs storage while minting a ledger-known workspace', async () => {

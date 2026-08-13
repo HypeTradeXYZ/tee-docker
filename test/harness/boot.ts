@@ -13,6 +13,10 @@ import {
 } from '../../src/session/rpc-boundary.service';
 import { ACCOUNT_UNLOCK_CLOCK, type AccountUnlockClock } from '../../src/auth/account-unlock-limiter';
 import { installRequestIdMiddleware } from '../../src/common/request-id.middleware';
+import {
+  WORKSPACE_CREATION_CLOCK,
+  type WorkspaceCreationClock,
+} from '../../src/workspaces/workspace-creation-limiter';
 
 /** Fixed so every flow's secretHash is reproducible. */
 export const TEST_SERVER_KEY = 'a'.repeat(64);
@@ -46,16 +50,13 @@ export interface BootOptions {
   readonly tenants?: readonly unknown[];
   /** Extra environment applied before the module is built. */
   readonly env?: Readonly<Record<string, string>>;
-  /**
-   * The boot KDF probe creates and unlocks a real workspace (~200ms). Skipped
-   * by default so flows stay fast; one flow exercises it deliberately.
-   */
-  readonly kdfCheck?: boolean;
   /** Deterministic H-01 resolver/request transport overrides. */
   readonly rpcDnsResolver?: RpcDnsResolver;
   readonly rpcHttpsRequester?: RpcHttpsRequester;
   /** Deterministic H-02 backoff clock override. */
   readonly accountUnlockClock?: AccountUnlockClock;
+  /** Deterministic M-10 creation-window and recreation-cooldown clock. */
+  readonly workspaceCreationClock?: WorkspaceCreationClock;
 }
 
 /**
@@ -88,7 +89,7 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
     TEE_STATE_DIR: join(baseDir, 'state'),
     WATIVE_DATA_ROOT: join(baseDir, 'data'),
     TEE_SECRET_HMAC_KEY: TEST_SERVER_KEY,
-    TEE_SKIP_KDF_CHECK: options.kdfCheck ? undefined : '1',
+    TEE_SKIP_KDF_CHECK: undefined,
     // Flows mint freely; the limit itself is exercised by its own flow with a
     // deliberately low value.
     TEE_MINT_RATE_LIMIT: '1000',
@@ -124,6 +125,11 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
     }
     if (options.accountUnlockClock) {
       builder = builder.overrideProvider(ACCOUNT_UNLOCK_CLOCK).useValue(options.accountUnlockClock);
+    }
+    if (options.workspaceCreationClock) {
+      builder = builder
+        .overrideProvider(WORKSPACE_CREATION_CLOCK)
+        .useValue(options.workspaceCreationClock);
     }
     const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication();

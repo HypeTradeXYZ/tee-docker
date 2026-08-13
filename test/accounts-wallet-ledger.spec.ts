@@ -42,7 +42,7 @@ describe('wallet ledger serialization', () => {
     const accounts = Object.assign(accountItems, {
       create: jest.fn(async (displayName: string) => {
         events.push(`core:${displayName}`);
-        const account = { wallets: [{}] };
+        const account = { slug: displayName, wallets: [{}] };
         accounts.push(account);
         return account;
       }),
@@ -111,6 +111,8 @@ describe('wallet ledger serialization', () => {
     await Promise.all([first, second]);
     expect(accounts.create).toHaveBeenCalledTimes(2);
     expect(draft.tenants.acme.walletTotal).toBe(2);
+    expect(session.accounts.get('first')).toMatchObject({ state: 'live' });
+    expect(session.accounts.get('second')).toMatchObject({ state: 'live' });
     expect(events.indexOf('ledger:1')).toBeLessThan(events.indexOf('core:second'));
 
     await registry.onApplicationShutdown();

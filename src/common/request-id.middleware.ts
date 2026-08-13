@@ -7,8 +7,8 @@ const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 /**
  * Stamps every request with an id, echoed in the response and in every log
- * line. 5xx bodies say only "internal error", so this id is the sole thread
- * from a caller's failed request back to the real cause in the logs.
+ * line. Internal 5xx bodies stay opaque and the small actionable allowlist uses
+ * fixed text, so this id remains the thread back to the real cause in logs.
  */
 export function requestIdMiddleware(
   req: AppRequest,

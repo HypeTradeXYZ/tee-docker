@@ -51,7 +51,8 @@ export class ErrorFilter implements ExceptionFilter {
     }
     const { status, body } = rendered;
 
-    // 5xx means we broke, not the caller — keep the real detail in logs only.
+    // 5xx diagnostics stay in logs. A few caller-actionable responses use only
+    // reviewed fixed public text; their real exception detail still stays here.
     if (status >= 500) {
       this.logger.error(
         `[${requestId}] ${body.error.code} ${status}: ${redactForLog(describe(exception))}`,
@@ -69,6 +70,9 @@ export class ErrorFilter implements ExceptionFilter {
     // already carry a correct status; don't relabel them.
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
+      if (!Number.isSafeInteger(status) || status < 400 || status > 599) {
+        return this.genericError(requestId);
+      }
       return {
         status,
         body: {
@@ -87,10 +91,12 @@ export class ErrorFilter implements ExceptionFilter {
       const body: ErrorBody = {
         error: {
           code: mapped.code,
-          // A 5xx message may carry internal state; 4xx is the caller's own
-          // fault and telling them why is the whole point.
-          message: mapped.status >= 500 && !mapped.exposeMessage
-            ? 'internal error'
+          // Raw 5xx messages may carry internal state. Only fixed reviewed text
+          // from the error map is eligible for a server-error response.
+          message: mapped.status >= 500
+            ? mapped.exposeMessage && mapped.publicMessage
+              ? mapped.publicMessage
+              : 'internal error'
             : exception.message,
           status: mapped.status,
           requestId,

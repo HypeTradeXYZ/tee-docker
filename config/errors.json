@@ -11,7 +11,7 @@
     "RECORD_NOT_FOUND": { "status": 404, "code": "not_found" },
     "PROVIDER_IO": { "status": 500, "code": "storage_error" },
     "PERMISSION_DENIED": { "status": 403, "code": "permission_denied" },
-    "DISK_FULL": { "status": 507, "code": "disk_full" },
+    "DISK_FULL": { "status": 507, "code": "disk_full", "exposeMessage": true, "publicMessage": "storage capacity is unavailable" },
     "PARAMETER_ERROR": { "status": 400, "code": "invalid_parameter" },
     "DECRYPT_FAILED": { "status": 500, "code": "decrypt_failed" },
     "ENCRYPT_FAILED": { "status": 500, "code": "encrypt_failed" },
@@ -21,14 +21,14 @@
     "UNSUPPORTED_NETWORK": { "status": 400, "code": "unsupported_network" },
     "TX_BUILD_FAILED": { "status": 422, "code": "tx_build_failed" },
     "TX_SIGN_FAILED": { "status": 500, "code": "tx_sign_failed" },
-    "TX_SUBMIT_FAILED": { "status": 502, "code": "tx_submit_failed" },
-    "TX_TIMEOUT": { "status": 504, "code": "tx_timeout" },
+    "TX_SUBMIT_FAILED": { "status": 502, "code": "tx_submit_failed", "exposeMessage": true, "publicMessage": "the RPC endpoint refused the transaction" },
+    "TX_TIMEOUT": { "status": 504, "code": "tx_timeout", "exposeMessage": true, "publicMessage": "the RPC operation timed out" },
     "TX_DROPPED": { "status": 409, "code": "tx_dropped" },
     "TX_ABORTED": { "status": 409, "code": "tx_aborted" },
-    "RPC_UNREACHABLE": { "status": 502, "code": "rpc_unreachable" },
-    "RPC_REJECTED": { "status": 502, "code": "rpc_rejected" },
+    "RPC_UNREACHABLE": { "status": 502, "code": "rpc_unreachable", "exposeMessage": true, "publicMessage": "the RPC endpoint could not be reached" },
+    "RPC_REJECTED": { "status": 502, "code": "rpc_rejected", "exposeMessage": true, "publicMessage": "the RPC endpoint rejected the request" },
     "STORAGE_NOT_DURABLE": { "status": 500, "code": "storage_not_durable" },
-    "UNSUPPORTED_OP": { "status": 501, "code": "unsupported_operation" },
+    "UNSUPPORTED_OP": { "status": 501, "code": "unsupported_operation", "exposeMessage": true, "publicMessage": "this operation is not supported" },
 
     "TEE_BAD_API_KEY": { "status": 401, "code": "bad_api_key" },
     "TEE_SESSION_EXPIRED": { "status": 401, "code": "session_expired" },
@@ -47,9 +47,11 @@
     "TEE_SCOPE_DENIED": { "status": 403, "code": "scope_denied", "exposeDetails": true },
     "TEE_SESSION_CAPACITY": { "status": 429, "code": "session_capacity_exceeded", "exposeDetails": true },
     "TEE_RPC_UNSAFE": { "status": 400, "code": "rpc_endpoint_rejected" },
-    "TEE_RPC_UNREACHABLE": { "status": 502, "code": "rpc_unreachable" },
+    "TEE_RPC_UNREACHABLE": { "status": 502, "code": "rpc_unreachable", "exposeMessage": true, "publicMessage": "the RPC endpoint could not be reached" },
     "TEE_ACCOUNT_UNLOCK_RATE": { "status": 429, "code": "account_unlock_rate_limited", "exposeDetails": true },
     "TEE_RPC_CAPACITY": { "status": 429, "code": "rpc_capacity_exceeded", "exposeDetails": true },
-    "TEE_BALANCES_UNAVAILABLE": { "status": 501, "code": "not_implemented", "exposeMessage": true }
+    "TEE_BALANCES_UNAVAILABLE": { "status": 501, "code": "not_implemented", "exposeMessage": true, "publicMessage": "Balance lookup is not available in this release." },
+    "TEE_WORKSPACE_CREATE_RATE": { "status": 429, "code": "workspace_creation_rate_limited", "exposeDetails": true },
+    "TEE_WORKSPACE_RECREATE_COOLDOWN": { "status": 429, "code": "workspace_recreation_cooldown", "exposeDetails": true }
   }
 }

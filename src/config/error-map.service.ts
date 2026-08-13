@@ -10,6 +10,7 @@ export interface ResolvedError {
   readonly code: string;
   readonly exposeDetails: boolean;
   readonly exposeMessage: boolean;
+  readonly publicMessage?: string;
   /** True when the library code had no entry in the table. */
   readonly unmapped: boolean;
 }
@@ -79,6 +80,7 @@ export class ErrorMapService {
         code: 'internal_error',
         exposeDetails: false,
         exposeMessage: false,
+        publicMessage: undefined,
         unmapped: true,
       };
     }
@@ -88,6 +90,7 @@ export class ErrorMapService {
       code: mapping.code,
       exposeDetails: mapping.exposeDetails ?? this.#config.defaultExposeDetails,
       exposeMessage: mapping.exposeMessage ?? false,
+      publicMessage: mapping.publicMessage,
       unmapped: false,
     };
   }

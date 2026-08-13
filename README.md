@@ -142,6 +142,7 @@ All routes use the `/v1` prefix.
 
 The default workspace token includes `read`, `write`, and `sign`. Request `export` explicitly only
 when the tenant has export enabled.
+When exporting a private key, add `?vm=evm` or `?vm=svm`; the response repeats the selection.
 
 ## Common responses
 

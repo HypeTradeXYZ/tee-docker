@@ -33,12 +33,12 @@ const RAW_X25519_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
  */
 export function parseRecipient(configured: string): { key: ReturnType<typeof createPublicKey>; raw: Buffer } {
   const [scheme, encoded] = configured.split(':', 2);
-  if (scheme !== 'x25519' || !encoded) {
+  if (scheme !== 'x25519' || !encoded || configured !== `x25519:${encoded}`) {
     throw new TeeError('TEE_EXPORT_DISABLED', 'exportPublicKey must be "x25519:<base64>"');
   }
 
   const raw = Buffer.from(encoded, 'base64');
-  if (raw.length !== 32) {
+  if (raw.length !== 32 || raw.toString('base64') !== encoded) {
     throw new TeeError('TEE_EXPORT_DISABLED', 'exportPublicKey must decode to 32 bytes');
   }
 
@@ -48,6 +48,21 @@ export function parseRecipient(configured: string): { key: ReturnType<typeof cre
     type: 'spki',
   });
   return { key, raw };
+}
+
+/** Prove at boot that an operator recipient is both canonical and usable. */
+export function validateRecipient(configured: string): void {
+  try {
+    const { key } = parseRecipient(configured);
+    const ephemeral = generateKeyPairSync('x25519');
+    const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: key });
+    if (shared.length !== 32 || shared.every((byte) => byte === 0)) {
+      throw new Error('invalid X25519 agreement result');
+    }
+  } catch {
+    // Config loading must never echo the key or an OpenSSL diagnostic.
+    throw new Error('exportPublicKey is not a usable X25519 recipient');
+  }
 }
 
 export function fingerprint(rawPublicKey: Buffer): string {

@@ -41,4 +41,11 @@ describe('scaffold-flow', () => {
       boot({ tenants: [{ ...DEFAULT_TENANT, limits: { maxWorkspaces: -1, maxWallets: 10 } }] }),
     ).rejects.toThrow();
   });
+
+  it('refuses to boot before listening when an export recipient is unusable', async () => {
+    const configured = `x25519:${Buffer.alloc(32).toString('base64')}`;
+    await expect(boot({
+      tenants: [{ ...DEFAULT_TENANT, exportPublicKey: configured }],
+    })).rejects.toThrow('exportPublicKey is not a usable X25519 recipient');
+  });
 });

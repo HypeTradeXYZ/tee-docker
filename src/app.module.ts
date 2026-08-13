@@ -10,7 +10,12 @@ import { JwtService } from './auth/jwt.service';
 import { MintRateLimiter, mintRateLimitFromEnv } from './auth/mint-rate-limit';
 import { ACCOUNT_UNLOCK_CLOCK, AccountUnlockLimiter } from './auth/account-unlock-limiter';
 import { WorkspaceGuard } from './auth/workspace.guard';
-import { ACCOUNT_CUSTODY_CLOCK, SessionRegistry } from './session/session.registry';
+import {
+  ACCOUNT_CUSTODY_CLOCK,
+  ACCOUNT_CUSTODY_SCHEDULER,
+  SessionRegistry,
+  systemAccountCustodyScheduler,
+} from './session/session.registry';
 import { SESSION_CAPACITY, sessionCapacityFromEnv } from './session/session-capacity';
 import { WorkspaceMutexInterceptor } from './session/workspace-mutex.interceptor';
 import { WorkspaceController } from './session/workspace.controller';
@@ -24,7 +29,13 @@ import { BalancesController } from './session/balances.controller';
 import { BalanceCapabilityGuard } from './session/balance-capability';
 import { ScopesGuard } from './auth/scopes.guard';
 import { HealthController } from './health/health.controller';
-import { KdfCheckService } from './kdf/kdf-check.service';
+import {
+  KDF_CHECK_CONFIG,
+  KDF_PROBE_RUNNER,
+  KdfCheckService,
+  kdfCheckConfigFromEnv,
+  systemKdfProbeRunner,
+} from './kdf/kdf-check.service';
 import { WorkspacesController } from './workspaces/workspaces.controller';
 import { WorkspacesService } from './workspaces/workspaces.service';
 import { WorkspaceStorageService } from './workspaces/workspace-storage.service';
@@ -40,6 +51,12 @@ import {
   RpcOperationService,
   rpcOperationConfigFromEnv,
 } from './session/rpc-operation.service';
+import {
+  WORKSPACE_CREATION_CLOCK,
+  WORKSPACE_CREATION_CONFIG,
+  WorkspaceCreationLimiter,
+  workspaceCreationConfigFromEnv,
+} from './workspaces/workspace-creation-limiter';
 
 @Module({
   imports: [ConfigModule],
@@ -58,6 +75,7 @@ import {
     { provide: ACCOUNT_UNLOCK_CLOCK, useValue: Date.now },
     AccountUnlockLimiter,
     { provide: ACCOUNT_CUSTODY_CLOCK, useValue: Date.now },
+    { provide: ACCOUNT_CUSTODY_SCHEDULER, useValue: systemAccountCustodyScheduler },
     SessionRegistry,
     { provide: SESSION_CAPACITY, useFactory: sessionCapacityFromEnv },
     { provide: APP_INTERCEPTOR, useClass: WorkspaceMutexInterceptor },
@@ -68,6 +86,9 @@ import {
     // that populates the scopes.
     ScopesGuard,
     WorkspacesService,
+    { provide: WORKSPACE_CREATION_CLOCK, useValue: Date.now },
+    { provide: WORKSPACE_CREATION_CONFIG, useFactory: workspaceCreationConfigFromEnv },
+    WorkspaceCreationLimiter,
     WorkspaceStorageService,
     { provide: RPC_DNS_RESOLVER, useValue: systemRpcDnsResolver },
     { provide: RPC_HTTPS_REQUESTER, useValue: httpsRequest },
@@ -75,6 +96,8 @@ import {
     { provide: RPC_OPERATION_CONFIG, useFactory: rpcOperationConfigFromEnv },
     RpcOperationService,
     BalanceCapabilityGuard,
+    { provide: KDF_CHECK_CONFIG, useFactory: kdfCheckConfigFromEnv },
+    { provide: KDF_PROBE_RUNNER, useValue: systemKdfProbeRunner },
     KdfCheckService,
     // Global, but registered as a provider so it can inject the config-driven
     // error map rather than reaching for a singleton.
