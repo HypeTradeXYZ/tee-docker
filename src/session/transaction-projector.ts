@@ -26,7 +26,7 @@ export async function projectBuiltTransaction(tx: Transaction): Promise<unknown>
 async function rawTransaction(tx: Transaction): Promise<unknown> {
   const fn = (tx as unknown as { toRawTx?: () => unknown }).toRawTx;
   if (typeof fn !== 'function') {
-    throw new TeeError('TEE_INVALID_SLUG', 'this transaction cannot be rendered as raw');
+    throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'this transaction cannot be rendered as raw');
   }
   return await fn.call(tx);
 }
@@ -241,5 +241,5 @@ function optional(
 }
 
 function invalidRaw(): TeeError {
-  return new TeeError('TEE_INVALID_SLUG', 'transaction raw shape is not supported');
+  return new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'transaction raw shape is not supported');
 }

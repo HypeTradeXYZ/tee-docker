@@ -7,12 +7,12 @@ import type { ServiceStateService } from '../src/config/service-state.service';
 import type { Session } from '../src/session/session.registry';
 import { normalizeWalletTags, WalletTagsService } from '../src/session/wallet-tags.service';
 
-function fixture(initialTags = ['old-a', 'old-b']) {
+function fixture(initialTags = ['old-a', 'old-b'], workspaceSlug = 'desk-a') {
   const data: ServiceState = {
     tenants: {
       acme: {
         walletTotal: 1,
-        workspaces: [{ slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 1 }],
+        workspaces: [{ slug: workspaceSlug, createdAt: new Date(0).toISOString(), walletCount: 1 }],
       },
     },
   };
@@ -34,7 +34,7 @@ function fixture(initialTags = ['old-a', 'old-b']) {
   } as unknown as Wallet;
   const session = {
     tenantId: 'acme',
-    workspaceSlug: 'desk-a',
+    workspaceSlug,
     unusable: false,
     handle: {
       accounts: {
@@ -70,6 +70,19 @@ describe('durable wallet tag replacement', () => {
     await f.service.replace(f.session, f.wallet, [' first ', 'e\u0301']);
     expect(f.state.mutate).not.toHaveBeenCalled();
     expect(f.wallet.clearTags).not.toHaveBeenCalled();
+  });
+
+  it('treats constructor as an own workspace-recovery key', async () => {
+    const f = fixture(['old'], 'constructor');
+    f.data.tenants.acme.walletTagRecoveries = {};
+
+    await expect(f.service.recoverWorkspace(f.session)).resolves.toBeUndefined();
+    expect(f.wallet.clearTags).not.toHaveBeenCalled();
+
+    await f.service.replace(f.session, f.wallet, ['new']);
+    expect(f.tags()).toEqual(['new']);
+    expect(f.data.tenants.acme.walletTagRecoveries).toBeUndefined();
+    expect(f.state.mutate).toHaveBeenCalledTimes(2);
   });
 
   it('restores the exact old set and preserves the forward error after a middle write fails', async () => {

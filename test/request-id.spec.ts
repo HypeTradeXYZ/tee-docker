@@ -28,6 +28,9 @@ describe('requestIdMiddleware', () => {
     'comma,joined',
     'bracket[value]',
     'unicode-é',
+    'unicode-e\u0301',
+    'emoji-😀',
+    'nul\0byte',
     'line\nbreak',
     'tab\tbreak',
     'x'.repeat(129),
@@ -35,5 +38,13 @@ describe('requestIdMiddleware', () => {
     const id = assign(incoming);
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(id).not.toBe(incoming);
+  });
+
+  it('mints a fresh canonical UUID for each unsafe request', () => {
+    const first = assign('comma,joined');
+    const second = assign('comma,joined');
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(second).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 });

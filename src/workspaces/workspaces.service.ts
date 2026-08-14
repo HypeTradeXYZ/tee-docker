@@ -55,7 +55,9 @@ export class WorkspacesService {
       let reserved: WorkspaceState;
       try {
         reserved = await this.state.mutate((draft): WorkspaceState => {
-          const t = (draft.tenants[tenant.id] ??= { walletTotal: 0, workspaces: [] });
+          const t = Object.hasOwn(draft.tenants, tenant.id)
+            ? draft.tenants[tenant.id]
+            : (draft.tenants[tenant.id] = { walletTotal: 0, workspaces: [] });
 
           if (t.workspaces.some((w) => w.slug === slug)) {
             throw new TeeError('TEE_WORKSPACE_EXISTS', `workspace "${slug}" already exists`);
@@ -72,7 +74,8 @@ export class WorkspacesService {
           for (const [candidate, deadline] of Object.entries(cooldowns)) {
             if (deadline <= now) delete cooldowns[candidate];
           }
-          refundCreationHit = this.creationLimiter.admit(tenant.id, cooldowns[slug]);
+          const recreateAfter = Object.hasOwn(cooldowns, slug) ? cooldowns[slug] : undefined;
+          refundCreationHit = this.creationLimiter.admit(tenant.id, recreateAfter);
 
           const entry: WorkspaceState = {
             slug,
@@ -102,8 +105,9 @@ export class WorkspacesService {
         // quota slot for a workspace that does not exist.
         await this.state
           .mutate((draft) => {
+            if (!Object.hasOwn(draft.tenants, tenant.id)) return;
             const t = draft.tenants[tenant.id];
-            if (t) t.workspaces = t.workspaces.filter((w) => w.slug !== slug);
+            t.workspaces = t.workspaces.filter((w) => w.slug !== slug);
           })
           .catch((rollbackErr: unknown) => {
             this.logger.error(
@@ -158,8 +162,8 @@ export class WorkspacesService {
         await this.storage.remove(tenant.id, slug);
         try {
           await this.state.mutate((draft) => {
+            if (!Object.hasOwn(draft.tenants, tenant.id)) return;
             const t = draft.tenants[tenant.id];
-            if (!t) return;
             t.workspaces = t.workspaces.filter((workspace) => workspace.slug !== slug);
             t.walletTotal = t.workspaces.reduce(
               (sum, workspace) => sum + workspace.walletCount,

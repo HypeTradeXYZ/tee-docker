@@ -7,13 +7,9 @@ import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from '../session/account-slug';
 import { SessionRegistry, type Session } from '../session/session.registry';
+import { parseWalletId } from '../session/wallet-id';
 import { seal, type SealedBlob } from './seal';
 
-const WalletId = z
-  .string()
-  .regex(/^(0|[1-9]\d*)$/)
-  .transform(Number)
-  .pipe(z.number().int().nonnegative().safe());
 const ExportVm = z.enum(['evm', 'svm']);
 
 type ExportTarget =
@@ -48,7 +44,7 @@ export class ExportController {
     return this.audited(session, tenant, accountSlug, { kind: 'mnemonic' }, async () => {
       const account = await this.sessions.requireAccount(session, accountSlug);
       if (account.organizationType !== 'HD') {
-        throw new TeeError('TEE_INVALID_SLUG', 'only an HD account has a mnemonic');
+        throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'only an HD account has a mnemonic');
       }
       return {
         kind: 'mnemonic',
@@ -70,9 +66,7 @@ export class ExportController {
     kind: 'privateKey'; account: string; walletId: number; vm: 'evm' | 'svm'; sealed: SealedBlob;
   }> {
     const accountSlug = assertValidAccountSlug(slug);
-    const parsedId = WalletId.safeParse(id);
-    if (!parsedId.success) throw new TeeError('TEE_INVALID_SLUG', 'wallet id must be an integer');
-    const walletId = parsedId.data;
+    const walletId = parseWalletId(id);
     const parsedVm = ExportVm.safeParse(vm);
     if (!parsedVm.success) {
       throw new WativeError('PARAMETER_ERROR', 'query parameter vm must be evm or svm');
@@ -90,9 +84,9 @@ export class ExportController {
         if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${walletId} not found`);
 
         if (!wallet.addresses.some((address) => address.vm === selectedVm)) {
-          throw new WativeError(
-            'PARAMETER_ERROR',
-            `wallet ${walletId} has no ${selectedVm} address`,
+          throw new TeeError(
+            'TEE_UNSUPPORTED_FOR_KIND',
+            'wallet does not support the selected VM',
           );
         }
 

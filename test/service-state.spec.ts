@@ -78,6 +78,29 @@ describe('ServiceStateService durable ledger', () => {
     };
   }
 
+  function stateWithNestedValues(): ServiceState {
+    return {
+      tenants: {
+        acme: {
+          walletTotal: 2,
+          workspaces: [{
+            slug: 'desk-a',
+            createdAt: '2026-08-12T00:00:00.000Z',
+            walletCount: 2,
+          }],
+          workspaceCooldowns: { 'desk-old': 1_900_000_000_000 },
+          walletTagRecoveries: {
+            'desk-a': {
+              accountSlug: 'vault-a',
+              walletId: 7,
+              oldTags: ['primary', 'cold'],
+            },
+          },
+        },
+      },
+    };
+  }
+
   async function setTotal(service: ServiceStateService, total: number): Promise<void> {
     await service.mutate((draft) => {
       draft.tenants = stateWith(total).tenants;
@@ -106,6 +129,132 @@ describe('ServiceStateService durable ledger', () => {
     ]) {
       expect(statSync(path).mode & 0o777).toBe(0o600);
     }
+  });
+
+  it('returns fresh deep tenant snapshots without a shared missing-tenant value', () => {
+    const initial = stateWithNestedValues();
+    const service = new ServiceStateService(paths, initial);
+    const first = service.tenant('acme');
+    const second = service.tenant('acme');
+
+    expect(first).not.toBe(second);
+    expect(first.workspaces).not.toBe(second.workspaces);
+    expect(first.workspaces[0]).not.toBe(second.workspaces[0]);
+    expect(first.workspaceCooldowns).not.toBe(second.workspaceCooldowns);
+    expect(first.walletTagRecoveries).not.toBe(second.walletTagRecoveries);
+    expect(first.walletTagRecoveries?.['desk-a']).not.toBe(
+      second.walletTagRecoveries?.['desk-a'],
+    );
+    expect(first.walletTagRecoveries?.['desk-a']?.oldTags).not.toBe(
+      second.walletTagRecoveries?.['desk-a']?.oldTags,
+    );
+
+    first.walletTotal = 99;
+    first.workspaces[0].walletCount = 99;
+    first.workspaces.push({
+      slug: 'desk-b',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      walletCount: 99,
+    });
+    first.workspaceCooldowns!['desk-old'] = 1;
+    first.walletTagRecoveries!['desk-a'].oldTags.push('changed');
+    delete first.walletTagRecoveries!['desk-a'];
+
+    expect(service.tenant('acme')).toEqual(stateWithNestedValues().tenants.acme);
+
+    const missingA = service.tenant('missing-a');
+    const missingB = service.tenant('missing-b');
+    expect(missingA).not.toBe(missingB);
+    expect(missingA.workspaces).not.toBe(missingB.workspaces);
+    missingA.walletTotal = 42;
+    missingA.workspaces.push({
+      slug: 'poison',
+      createdAt: '2026-08-12T00:00:00.000Z',
+      walletCount: 1,
+    });
+    expect(service.tenant('missing-a')).toEqual({ walletTotal: 0, workspaces: [] });
+    expect(service.tenant('missing-b')).toEqual({ walletTotal: 0, workspaces: [] });
+  });
+
+  it('treats prototype-colliding tenant ids as own ledger keys', async () => {
+    const service = openState();
+    const first = service.tenant('constructor');
+    const second = service.tenant('constructor');
+
+    expect(first).toEqual({ walletTotal: 0, workspaces: [] });
+    expect(second).toEqual({ walletTotal: 0, workspaces: [] });
+    expect(first).not.toBe(second);
+    first.walletTotal = 99;
+
+    await service.mutate((draft) => {
+      const tenantId: string = 'constructor';
+      const tenant = Object.hasOwn(draft.tenants, tenantId)
+        ? draft.tenants[tenantId]
+        : (draft.tenants[tenantId] = { walletTotal: 0, workspaces: [] });
+      tenant.workspaces.push({
+        slug: 'desk-a',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        walletCount: 1,
+      });
+      tenant.walletTotal = 1;
+    });
+
+    expect(Object.hasOwn(readState().tenants, 'constructor')).toBe(true);
+    expect(service.tenant('constructor').walletTotal).toBe(1);
+    await closeState(service);
+    const reopened = openState();
+    expect(reopened.tenant('constructor')).toEqual({
+      walletTotal: 1,
+      workspaces: [{
+        slug: 'desk-a',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        walletCount: 1,
+      }],
+    });
+  });
+
+  it('detaches constructor input, mutation results, and callback-retained drafts', async () => {
+    const initial = stateWithNestedValues();
+    const constructorService = new ServiceStateService(paths, initial);
+    initial.tenants.acme.walletTotal = 77;
+    initial.tenants.acme.workspaces[0].walletCount = 77;
+    initial.tenants.acme.walletTagRecoveries!['desk-a'].oldTags.push('escaped');
+    expect(constructorService.tenant('acme')).toEqual(stateWithNestedValues().tenants.acme);
+
+    const service = openState();
+    let retainedDraft: ServiceState | undefined;
+    const returned = await service.mutate((draft) => {
+      draft.tenants = stateWithNestedValues().tenants;
+      retainedDraft = draft;
+      return draft.tenants.acme;
+    });
+    const committed = readState();
+
+    returned.walletTotal = 88;
+    returned.workspaces[0].walletCount = 88;
+    returned.walletTagRecoveries!['desk-a'].oldTags.push('returned-alias');
+    retainedDraft!.tenants.acme.walletTotal = 99;
+    retainedDraft!.tenants.acme.workspaces[0].walletCount = 99;
+    retainedDraft!.tenants.acme.walletTagRecoveries!['desk-a'].oldTags.push('draft-alias');
+
+    expect(service.tenant('acme')).toEqual(stateWithNestedValues().tenants.acme);
+    expect(readState()).toEqual(committed);
+  });
+
+  it('rejects unclonable mutation results before persistence and keeps the queue usable', async () => {
+    const service = openState();
+    const before = readFileSync(paths.stateFile, 'utf8');
+
+    await expect(service.mutate((draft) => {
+      draft.tenants = stateWith(1).tenants;
+      return () => undefined;
+    })).rejects.toThrow();
+
+    expect(readFileSync(paths.stateFile, 'utf8')).toBe(before);
+    expect(service.tenant('acme')).toEqual({ walletTotal: 0, workspaces: [] });
+
+    await setTotal(service, 2);
+    expect(service.tenant('acme').walletTotal).toBe(2);
   });
 
   it('serializes queued mutations and retains the previous confirmed snapshot', async () => {

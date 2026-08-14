@@ -6,9 +6,9 @@ import type { AppRequest } from './http';
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 /**
- * Stamps every request with an id, echoed in the response and in every log
- * line. Internal 5xx bodies stay opaque and the small actionable allowlist uses
- * fixed text, so this id remains the thread back to the real cause in logs.
+ * Stamps every application request with an id echoed in the response. Error
+ * responses and their ErrorFilter log records carry the same id, providing a
+ * safe correlation thread while internal 5xx bodies remain opaque.
  */
 export function requestIdMiddleware(
   req: AppRequest,

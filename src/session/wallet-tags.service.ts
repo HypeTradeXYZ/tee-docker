@@ -83,16 +83,22 @@ export class WalletTagsService {
   }
 
   private currentRecovery(session: Session): WalletTagRecovery | undefined {
-    return this.state.tenant(session.tenantId).walletTagRecoveries?.[session.workspaceSlug];
+    const recoveries = this.state.tenant(session.tenantId).walletTagRecoveries;
+    return recoveries && Object.hasOwn(recoveries, session.workspaceSlug)
+      ? recoveries[session.workspaceSlug]
+      : undefined;
   }
 
   private async writeRecovery(session: Session, recovery: WalletTagRecovery): Promise<void> {
     await this.state.mutate((draft) => {
+      if (!Object.hasOwn(draft.tenants, session.tenantId)) {
+        throw new Error('wallet tag recovery workspace is missing');
+      }
       const tenant = draft.tenants[session.tenantId];
-      const known = tenant?.workspaces.some((workspace) => workspace.slug === session.workspaceSlug);
-      if (!tenant || !known) throw new Error('wallet tag recovery workspace is missing');
+      const known = tenant.workspaces.some((workspace) => workspace.slug === session.workspaceSlug);
+      if (!known) throw new Error('wallet tag recovery workspace is missing');
       const recoveries = (tenant.walletTagRecoveries ??= {});
-      if (recoveries[session.workspaceSlug]) {
+      if (Object.hasOwn(recoveries, session.workspaceSlug)) {
         throw new Error('wallet tag recovery is already pending');
       }
       recoveries[session.workspaceSlug] = recovery;
@@ -101,11 +107,13 @@ export class WalletTagsService {
 
   private async clearRecovery(session: Session): Promise<void> {
     await this.state.mutate((draft) => {
-      const recoveries = draft.tenants[session.tenantId]?.walletTagRecoveries;
+      if (!Object.hasOwn(draft.tenants, session.tenantId)) return;
+      const tenant = draft.tenants[session.tenantId];
+      const recoveries = tenant.walletTagRecoveries;
       if (!recoveries) return;
       delete recoveries[session.workspaceSlug];
       if (Object.keys(recoveries).length === 0) {
-        delete draft.tenants[session.tenantId]?.walletTagRecoveries;
+        delete tenant.walletTagRecoveries;
       }
     });
   }

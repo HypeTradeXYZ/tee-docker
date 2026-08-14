@@ -85,14 +85,59 @@ describe('body-parser error boundary', () => {
   });
 
   it('generates one safe id before parsing when the supplied id is unsafe', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    const unsafe = 'comma,joined';
+    try {
+      const res = await request(h.app.getHttpServer())
+        .post('/v1/auth/token')
+        .set('content-type', 'application/json')
+        .set('x-request-id', unsafe)
+        .send('{');
+      const id = res.headers['x-request-id'];
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect(res.body.error.requestId).toBe(id);
+      expect(warn).toHaveBeenCalledWith(`[${id}] bad_request 400`);
+      expect(JSON.stringify({ headers: res.headers, body: res.body, logs: warn.mock.calls }))
+        .not.toContain(unsafe);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([
+    ['absent', undefined, false],
+    ['valid-128', 'A'.repeat(128), true],
+    ['invalid-129', 'A'.repeat(129), false],
+  ] as const)('correlates parser errors for an %s request id', async (_name, supplied, preserved) => {
+    const call = request(h.app.getHttpServer())
+      .post('/v1/auth/token')
+      .set('content-type', 'application/json');
+    if (supplied !== undefined) call.set('x-request-id', supplied);
+    const res = await call.send('{');
+    const id = res.headers['x-request-id'];
+    expect(res.body.error.requestId).toBe(id);
+    if (preserved) expect(id).toBe(supplied);
+    else expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('rejects joined duplicate request ids and mints one correlated UUID', async () => {
     const res = await request(h.app.getHttpServer())
       .post('/v1/auth/token')
       .set('content-type', 'application/json')
-      .set('x-request-id', 'comma,joined')
+      .set({ 'x-request-id': ['safe-one', 'safe-two'] } as unknown as Record<string, string>)
       .send('{');
     const id = res.headers['x-request-id'];
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
     expect(res.body.error.requestId).toBe(id);
-    expect(res.body.error.requestId).not.toBe('unknown');
+    expect(JSON.stringify(res.body)).not.toContain('safe-one');
+    expect(JSON.stringify(res.body)).not.toContain('safe-two');
+  });
+
+  it('stamps successful application responses too', async () => {
+    const res = await request(h.app.getHttpServer())
+      .get('/v1/health')
+      .set('x-request-id', 'health.trace-01');
+    expect(res.status).toBe(200);
+    expect(res.headers['x-request-id']).toBe('health.trace-01');
   });
 });

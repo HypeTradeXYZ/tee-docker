@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+export const SECRET_HASH_RE = /^[0-9a-f]{64}$/i;
+
 /**
  * API secrets are verified with HMAC-SHA256 under a server key — deliberately
  * NOT a slow KDF.
@@ -14,19 +16,13 @@ export function hashApiSecret(secret: string, serverKey: Buffer): string {
 }
 
 /**
- * Constant-time comparison. `timingSafeEqual` throws on a length mismatch,
- * which would itself leak length, so compare digests of the candidate rather
- * than the raw strings — those are always 32 bytes.
+ * Constant-time comparison of canonical HMAC encodings. Validate before
+ * Buffer decoding because Node's hex decoder silently truncates invalid text.
  */
 export function verifyApiSecret(secret: string, expectedHash: string, serverKey: Buffer): boolean {
   const actual = Buffer.from(hashApiSecret(secret, serverKey), 'hex');
-
-  let expected: Buffer;
-  try {
-    expected = Buffer.from(expectedHash, 'hex');
-  } catch {
-    return false;
-  }
+  if (!SECRET_HASH_RE.test(expectedHash)) return false;
+  const expected = Buffer.from(expectedHash, 'hex');
   if (expected.length !== actual.length) return false;
 
   return timingSafeEqual(actual, expected);

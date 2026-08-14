@@ -41,6 +41,19 @@ describe('error-map', () => {
     });
   });
 
+  it('keeps request-shape and target-kind errors distinct and opaque', () => {
+    expect(service.resolve('TEE_INVALID_BODY')).toMatchObject({
+      status: 400,
+      code: 'invalid_body',
+      exposeDetails: false,
+    });
+    expect(service.resolve('TEE_UNSUPPORTED_FOR_KIND')).toMatchObject({
+      status: 422,
+      code: 'unsupported_for_kind',
+      exposeDetails: false,
+    });
+  });
+
   it('refuses construction when a reviewed mapping is missing', () => {
     const mappings = { ...config.mappings };
     delete mappings.RPC_REJECTED;

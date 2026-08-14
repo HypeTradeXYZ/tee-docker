@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SECRET_HASH_RE } from '../auth/secret';
 
 /** Tenant ids and workspace slugs become path components — keep them boring. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -19,7 +20,7 @@ export const TenantSchema = z.object({
   id: z.string().regex(SLUG_RE, 'tenant id must be a lowercase slug'),
   apiKey: z.string().min(16),
   /** HMAC-SHA256 of the API secret. Not a slow KDF — see DESIGN.md §10. */
-  secretHash: z.string().min(32),
+  secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),
   /** Absent disables export for this tenant. Doubles as the enable flag. */
   exportPublicKey: z
     .string()

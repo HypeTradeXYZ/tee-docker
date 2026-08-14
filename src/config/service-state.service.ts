@@ -22,7 +22,6 @@ import { Injectable } from '@nestjs/common';
 import { ServiceStateSchema, type ServiceState, type TenantState } from './schemas';
 import type { Paths } from './paths';
 
-const EMPTY_TENANT: TenantState = { walletTotal: 0, workspaces: [] };
 const INITIALIZED_MARKER = 'tee-docker-state-v1\n';
 const LOCK_VERSION = 1;
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -108,7 +107,8 @@ export class ServiceStateService {
     private readonly fs: ServiceStateFs = NODE_SERVICE_STATE_FS,
     private readonly lock?: ProcessLock,
   ) {
-    this.#state = initial;
+    // Never retain a caller-owned graph as authoritative state.
+    this.#state = ServiceStateSchema.parse(structuredClone(initial));
   }
 
   static fromFile(
@@ -165,7 +165,10 @@ export class ServiceStateService {
 
   tenant(tenantId: string): TenantState {
     this.#assertHealthy();
-    return this.#state.tenants[tenantId] ?? EMPTY_TENANT;
+    if (!Object.hasOwn(this.#state.tenants, tenantId)) {
+      return { walletTotal: 0, workspaces: [] };
+    }
+    return structuredClone(this.#state.tenants[tenantId]);
   }
 
   /** Serialize a synchronous mutation and publish it only after durable commit. */
@@ -180,10 +183,16 @@ export class ServiceStateService {
       if (isPromiseLike(result)) {
         throw new TypeError('service state mutation callback must be synchronous');
       }
-      ServiceStateSchema.parse(draft);
-      await this.#persist(draft);
-      this.#state = draft;
-      return result;
+      const validated = ServiceStateSchema.parse(draft);
+      // Clone before persistence: an unclonable result must be a safe
+      // pre-commit rejection, never a committed mutation that fails while
+      // returning. This also detaches nested values returned from the draft.
+      const safeResult = structuredClone(result);
+      await this.#persist(validated);
+      // A callback can retain its draft through a closure even when it returns
+      // a primitive. Publish a second graph that the callback never observed.
+      this.#state = structuredClone(validated);
+      return safeResult;
     });
 
     // A safe pre-commit failure does not wedge the queue. An indeterminate

@@ -29,7 +29,7 @@ describe('export audit boundary', () => {
     async (id) => {
       const { controller, sessions, logger } = setup({});
       await expect(controller.privateKey(session, tenant, 'desk', id, 'evm')).rejects.toMatchObject({
-        code: 'TEE_INVALID_SLUG',
+        code: 'PARAMETER_ERROR',
       });
       expect(sessions.requireAccount).not.toHaveBeenCalled();
       expect(logger.log).not.toHaveBeenCalled();
@@ -85,7 +85,7 @@ describe('export audit boundary', () => {
     });
 
     await expect(controller.privateKey(session, tenant, 'desk', '0', 'svm')).rejects.toMatchObject({
-      code: 'PARAMETER_ERROR',
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
     expect(dumpPrivateKey).not.toHaveBeenCalled();
     expect(logger.log.mock.calls[0]?.[0]).toMatchObject({ outcome: 'ATTEMPT', vm: 'svm' });
@@ -259,7 +259,7 @@ describe('export audit boundary', () => {
     });
     await expect(
       addressless.controller.privateKey(session, tenant, 'desk', '0', 'evm'),
-    ).rejects.toMatchObject({ code: 'PARAMETER_ERROR' });
+    ).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
     expect(addressless.logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
     expect(addressless.logger.warn.mock.calls.map(([record]) => record.outcome)).toEqual(['FAILURE']);
   });

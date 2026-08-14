@@ -1,7 +1,8 @@
 {
   "_comment": [
     "Copy to tenants.json and edit by hand. tenants.json is gitignored.",
-    "secretHash is HMAC-SHA256 of the API secret under the server key — not a",
+    "secretHash is exactly 64 hexadecimal HMAC-SHA256 characters of the API secret",
+    "under the server key (hex letter case is ignored) — not a",
     "slow KDF. See docs/DESIGN.md §10 for why.",
     "exportPublicKey is optional; absent disables export for the tenant.",
     "Replace the marker with a canonical base64 X25519 public key or remove the field."

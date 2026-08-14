@@ -59,7 +59,7 @@ export class NetworksController {
     @Body() body: unknown,
   ): Promise<{ network: string; rpcSource: RpcSource }> {
     const parsed = SetRpc.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { rpcUrl }');
+    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { rpcUrl }');
 
     const network = session.handle.networks.bySlug(assertValidSlug(slug) as never);
     if (!network) {

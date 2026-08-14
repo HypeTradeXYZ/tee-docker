@@ -8,6 +8,7 @@ import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
 import { SessionRegistry, type Session } from './session.registry';
 import { WalletTagsService } from './wallet-tags.service';
+import { parseWalletId } from './wallet-id';
 import {
   accountView,
   addressView,
@@ -18,7 +19,9 @@ import {
 } from './views';
 
 const CreateAccount = z.object({
-  displayName: z.string().min(1).max(120),
+  // Core-compatible normalization/bounds run in AccountsService so direct
+  // service callers cannot bypass them and known failures precede quota work.
+  displayName: z.string(),
   kind: z.enum(['HD', 'PK']).default('HD'),
   /** Mnemonic for HD (generated when absent), private key for PK. */
   secret: z.string().min(1).optional(),
@@ -48,7 +51,7 @@ export class AccountsController {
   ): Promise<{ account: AccountView; generatedSecret: boolean }> {
     const parsed = CreateAccount.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { displayName, kind?, secret?, defaultNetwork? }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { displayName, kind?, secret?, defaultNetwork? }');
     }
 
     const account = await this.accounts.create(session, tenant, parsed.data);
@@ -77,7 +80,7 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ before: number; after: number }> {
     const parsed = DeriveWallets.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { count }');
+    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { count }');
     return this.accounts.deriveWallets(
       session,
       tenant,
@@ -96,7 +99,7 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ wallet: WalletView }> {
     const parsed = ImportKey.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { privateKey }');
+    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { privateKey }');
     const wallet = await this.accounts.importPrivateKey(
       session,
       tenant,
@@ -123,8 +126,9 @@ export class AccountsController {
     @Param('slug') slug: string,
     @Param('id') id: string,
   ): Promise<{ addresses: AddressView[] }> {
+    const walletId = parseWalletId(id);
     const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
-    const wallet = account.wallets.byId(Number(id));
+    const wallet = account.wallets.byId(walletId);
     if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
     return { addresses: wallet.addresses.map(addressView) };
   }
@@ -138,10 +142,11 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ wallet: WalletView }> {
     const parsed = SetTags.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_SLUG', 'body must be { tags }');
+    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { tags }');
+    const walletId = parseWalletId(id);
 
     const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
-    const wallet = account.wallets.byId(Number(id));
+    const wallet = account.wallets.byId(walletId);
     if (!wallet) throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${id} not found`);
 
     await this.walletTags.replace(session, wallet, parsed.data.tags);

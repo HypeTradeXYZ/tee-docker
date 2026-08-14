@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { WativeError } from 'wative-core';
 import { TeeError } from '../common/tee-error';
 import type { Tenant, WorkspaceState } from '../config/schemas';
 import { CurrentTenant, TenantGuard } from '../auth/tenant.guard';
@@ -44,7 +45,7 @@ export class WorkspacesController {
   ): Promise<{ workspace: WorkspaceState }> {
     const parsed = CreateBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { slug, password }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { slug, password }');
     }
     const slug = assertValidSlug(parsed.data.slug);
     const workspace = await this.workspaces.create(tenant, slug, parsed.data.password);
@@ -65,5 +66,5 @@ export class WorkspacesController {
 function parseForce(value: unknown): boolean {
   if (value === undefined || value === 'false') return false;
   if (value === 'true') return true;
-  throw new TeeError('TEE_INVALID_SLUG', 'force must be exactly true or false');
+  throw new WativeError('PARAMETER_ERROR', 'force must be exactly true or false');
 }

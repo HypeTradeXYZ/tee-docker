@@ -16,6 +16,7 @@ import { SessionRegistry, type Session } from './session.registry';
 import { RpcBoundaryService } from './rpc-boundary.service';
 import { projectBuiltTransaction } from './transaction-projector';
 import { RpcOperation, RpcOperationService } from './rpc-operation.service';
+import { parseNetworkSelector } from './network-selector';
 
 /** bigint-valued fields arrive as decimal strings — JSON has no bigint. */
 const bigintish = z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]);
@@ -129,17 +130,15 @@ export class TransactionsController {
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
     @Param('hash') hash: string,
-    @Query('network') network: string | undefined,
+    @Query('network') network: unknown,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ hash: string; found: boolean; status: string }> {
-    if (!network) {
-      throw new TeeError('TEE_INVALID_SLUG', 'a ?network= query parameter is required');
-    }
+    const selectedNetwork = parseNetworkSelector(network);
 
-    const rpc = requireRpc(session, tenant, network, this.rpcBoundary);
+    const rpc = requireRpc(session, tenant, selectedNetwork, this.rpcBoundary);
     res.setHeader('x-rpc-source', rpc.source);
 
-    const net = session.handle.networks.bySlug(network as never);
+    const net = session.handle.networks.bySlug(selectedNetwork as never);
     const isEvm = net?.vm === 'evm';
 
     const payload = isEvm
@@ -173,7 +172,7 @@ export class TransactionsController {
   ): Promise<{ address: Address; tx: Transaction }> {
     const parsed = BuildBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must name an address and a destination');
+      throw new TeeError('TEE_INVALID_BODY', 'body must name an address and a destination');
     }
 
     const address = await this.resolveAddress(session, parsed.data.address);
@@ -183,7 +182,7 @@ export class TransactionsController {
 
     const d = parsed.data;
     if (address.vm === 'evm') {
-      if (!d.to) throw new TeeError('TEE_INVALID_SLUG', 'an EVM transaction needs "to"');
+      if (!d.to) throw new TeeError('TEE_INVALID_BODY', 'an EVM transaction needs "to"');
       return {
         address,
         tx: address.buildTransaction({
@@ -200,7 +199,7 @@ export class TransactionsController {
     }
 
     if (!d.recipient || d.amount === undefined) {
-      throw new TeeError('TEE_INVALID_SLUG', 'an SVM transaction needs "recipient" and "amount"');
+      throw new TeeError('TEE_INVALID_BODY', 'an SVM transaction needs "recipient" and "amount"');
     }
     return {
       address,

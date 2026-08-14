@@ -671,8 +671,10 @@ export class SessionRegistry implements OnApplicationShutdown {
     for (const account of session.handle.accounts) walletCount += account.wallets.length;
 
     await this.state.mutate((draft) => {
+      if (!Object.hasOwn(draft.tenants, session.tenantId)) {
+        throw new Error(`missing ledger tenant ${session.tenantId}`);
+      }
       const tenant = draft.tenants[session.tenantId];
-      if (!tenant) throw new Error(`missing ledger tenant ${session.tenantId}`);
       const entry = tenant.workspaces.find((w) => w.slug === session.workspaceSlug);
       if (!entry) throw new Error(`missing ledger workspace ${session.workspaceSlug}`);
       entry.walletCount = walletCount;

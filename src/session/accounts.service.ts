@@ -4,6 +4,7 @@ import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { ServiceStateService } from '../config/service-state.service';
 import { SessionRegistry, type Session } from './session.registry';
+import { normalizeAccountDisplayName } from './account-display-name';
 
 export interface CreateAccountInput {
   displayName: string;
@@ -21,8 +22,9 @@ export class AccountsService {
   ) {}
 
   async create(session: Session, tenant: Tenant, input: CreateAccountInput): Promise<Account> {
+    const displayName = await normalizeAccountDisplayName(input.displayName);
     if (input.kind === 'PK' && !input.secret) {
-      throw new TeeError('TEE_INVALID_SLUG', 'a PK account requires a private key');
+      throw new TeeError('TEE_INVALID_BODY', 'a PK account requires a private key');
     }
 
     return this.mutateWalletIncrease(
@@ -36,7 +38,7 @@ export class AccountsService {
         // default is TRUE, so omitting it would silently give every account its
         // own password and break the session model. See DESIGN.md §3.
         const account = await session.handle.accounts.create(
-          input.displayName,
+          displayName,
           session.password,
           secret,
           input.defaultNetwork,
@@ -68,7 +70,7 @@ export class AccountsService {
   ): Promise<{ before: number; after: number }> {
     const account = await this.sessions.requireAccount(session, slug);
     if (account.organizationType !== 'HD') {
-      throw new TeeError('TEE_INVALID_SLUG', 'only an HD account can derive wallets');
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'only an HD account can derive wallets');
     }
 
     return this.mutateWalletIncrease(session, tenant, count, () => account.deriveWallets(count));
@@ -92,8 +94,10 @@ export class AccountsService {
   private async reserveWallets(session: Session, tenant: Tenant, adding: number): Promise<void> {
     const liveBefore = this.liveWalletCount(session);
     await this.state.mutate((draft) => {
+      if (!Object.hasOwn(draft.tenants, tenant.id)) {
+        throw new Error(`missing ledger tenant ${tenant.id}`);
+      }
       const ledgerTenant = draft.tenants[tenant.id];
-      if (!ledgerTenant) throw new Error(`missing ledger tenant ${tenant.id}`);
       const workspace = ledgerTenant.workspaces.find((entry) => entry.slug === session.workspaceSlug);
       if (!workspace) throw new Error(`missing ledger workspace ${session.workspaceSlug}`);
 

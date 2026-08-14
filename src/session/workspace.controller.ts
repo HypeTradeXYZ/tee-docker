@@ -12,6 +12,7 @@ import { AllowAnyWorkspaceScope, RequireScopes, ScopesGuard } from '../auth/scop
 import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
 import type { Tenant } from '../config/schemas';
+import { parseNetworkSelector } from './network-selector';
 
 const UnlockBody = z.object({ accountPassword: z.string().min(1) });
 
@@ -88,14 +89,12 @@ export class WorkspaceController {
   @RequireScopes('read')
   async assets(
     @CurrentSession() session: Session,
-    @Query('network') network: string | undefined,
+    @Query('network') network: unknown,
   ): Promise<{ network: string; assets: AssetView[] }> {
-    if (!network) {
-      throw new TeeError('TEE_INVALID_SLUG', 'a ?network= query parameter is required');
-    }
-    const assets = await session.handle.assets(network);
+    const selectedNetwork = parseNetworkSelector(network);
+    const assets = await session.handle.assets(selectedNetwork);
     return {
-      network,
+      network: selectedNetwork,
       assets: assets.map((a) => ({
         id: Number(a.id),
         symbol: a.symbol,
@@ -123,7 +122,7 @@ export class WorkspaceController {
   ): Promise<void> {
     const parsed = UnlockBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { accountPassword }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { accountPassword }');
     }
     await this.sessions.unlockAccount(
       session,

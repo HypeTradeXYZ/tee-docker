@@ -41,6 +41,8 @@
     "TEE_WORKSPACE_NOT_FOUND": { "status": 404, "code": "workspace_not_found" },
     "TEE_WORKSPACE_IN_USE": { "status": 409, "code": "workspace_in_use" },
     "TEE_INVALID_SLUG": { "status": 400, "code": "invalid_slug", "exposeDetails": true },
+    "TEE_INVALID_BODY": { "status": 400, "code": "invalid_body" },
+    "TEE_UNSUPPORTED_FOR_KIND": { "status": 422, "code": "unsupported_for_kind" },
     "TEE_KDF_BACKEND_UNSAFE": { "status": 503, "code": "kdf_backend_unsafe" },
     "TEE_ACCOUNT_LOCKED": { "status": 423, "code": "account_locked", "exposeDetails": true },
     "TEE_ACCOUNT_NOT_FOUND": { "status": 404, "code": "account_not_found" },

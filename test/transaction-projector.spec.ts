@@ -78,7 +78,7 @@ describe('built transaction projection', () => {
   it('rejects inherited or accessor-backed allowlisted fields', async () => {
     const inherited = Object.create(baseEvm()) as Record<string, unknown>;
     await expect(projectBuiltTransaction(fake('evm', inherited))).rejects.toMatchObject({
-      code: 'TEE_INVALID_SLUG',
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
     const accessor = baseEvm();
     Object.defineProperty(accessor, 'from', {
@@ -86,13 +86,13 @@ describe('built transaction projection', () => {
       get: () => 'http://127.0.0.1:1/rpc/CAPABILITY',
     });
     await expect(projectBuiltTransaction(fake('evm', accessor))).rejects.toMatchObject({
-      code: 'TEE_INVALID_SLUG',
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
   });
 
   it('rejects unsupported VM values instead of treating them as SVM', async () => {
     await expect(projectBuiltTransaction(fake('sui' as 'evm', baseEvm()))).rejects.toMatchObject({
-      code: 'TEE_INVALID_SLUG',
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
   });
 
@@ -104,7 +104,7 @@ describe('built transaction projection', () => {
     await expect(projectBuiltTransaction(fake('evm', {
       ...baseEvm(),
       accessList,
-    }))).rejects.toMatchObject({ code: 'TEE_INVALID_SLUG' });
+    }))).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
 
     class EvilArray extends Array<unknown> {
       static get [Symbol.species](): ArrayConstructor {
@@ -118,7 +118,7 @@ describe('built transaction projection', () => {
       nonceInfo: null,
       signatures: [],
       instructions,
-    }))).rejects.toMatchObject({ code: 'TEE_INVALID_SLUG' });
+    }))).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
   });
 
   it('does not mutate a frozen transaction or its rpcUrl', async () => {
@@ -214,7 +214,7 @@ describe('built transaction projection', () => {
       nonceInfo: null,
       signatures: [],
       instructions: [],
-    }))).rejects.toMatchObject({ code: 'TEE_INVALID_SLUG' });
+    }))).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
   });
 
   it.each([
@@ -227,7 +227,7 @@ describe('built transaction projection', () => {
     { ...baseEvm(), accessList: Array.from({ length: 257 }, () => ({ address: TO, storageKeys: [] })) },
   ])('rejects malformed or oversized EVM raw data', async (raw) => {
     await expect(projectBuiltTransaction(fake('evm', raw))).rejects.toMatchObject({
-      code: 'TEE_INVALID_SLUG',
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
   });
 
@@ -238,7 +238,7 @@ describe('built transaction projection', () => {
       nonceInfo: null,
       signatures: [],
       instructions: [{ programId: SOL, keys: [], data: new Uint8Array(1_233) }],
-    }))).rejects.toMatchObject({ code: 'TEE_INVALID_SLUG' });
+    }))).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
   });
 });
 

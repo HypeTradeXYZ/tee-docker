@@ -48,7 +48,7 @@ describe('scope-enforcement-flow', () => {
       .send({ workspace: 'desk-a', password: WS_PASSWORD, scopes: [] });
 
     expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('invalid_slug');
+    expect(res.body.error.code).toBe('invalid_body');
     expect(res.body.token).toBeUndefined();
     expect(sessions.size).toBe(before);
   });

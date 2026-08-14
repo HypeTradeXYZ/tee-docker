@@ -35,6 +35,67 @@ const tenant: Tenant = {
   exportEnabled: false,
 };
 
+describe('account display-name admission', () => {
+  it.each(['abc', '中文中文', '1234', 'a'.repeat(65)])(
+    'rejects %p before quota reservation or core creation',
+    async (displayName) => {
+      const create = jest.fn();
+      const state = { mutate: jest.fn() } as unknown as ServiceStateService;
+      const sessions = { recordAccountExposure: jest.fn() } as unknown as SessionRegistry;
+      const service = new AccountsService(sessions, state);
+      const session = {
+        unusable: false,
+        handle: { accounts: Object.assign([], { create }) },
+      } as unknown as Parameters<AccountsService['create']>[0];
+
+      await expect(service.create(session, tenant, {
+        displayName,
+        kind: 'PK',
+        secret: 'not-reached',
+      })).rejects.toMatchObject({ code: 'PARAMETER_ERROR' });
+      expect(state.mutate).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expect(sessions.recordAccountExposure).not.toHaveBeenCalled();
+      expect(session.unusable).toBe(false);
+    },
+  );
+
+  it('passes only the normalized display name into quota-protected core creation', async () => {
+    const account = { slug: 'valid-name', wallets: [{}] };
+    const create = jest.fn(async () => account);
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: [
+            { slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 },
+          ],
+        },
+      },
+    };
+    const state = {
+      mutate: jest.fn(async (fn: (value: typeof draft) => unknown) => fn(draft)),
+    } as unknown as ServiceStateService;
+    const sessions = {
+      recordAccountExposure: jest.fn(),
+      syncWalletCount: jest.fn(async () => undefined),
+      markUnusable: jest.fn(),
+    } as unknown as SessionRegistry;
+    const service = new AccountsService(sessions, state);
+    const session = {
+      tenantId: 'acme', workspaceSlug: 'desk-a', password: 'password', unusable: false,
+      handle: { accounts: Object.assign([], { create }) },
+    } as unknown as Parameters<AccountsService['create']>[0];
+
+    await expect(service.create(session, tenant, {
+      displayName: '  valid    name ', kind: 'PK', secret: 'key',
+    })).resolves.toBe(account);
+    expect(create).toHaveBeenCalledWith(
+      'valid name', 'password', 'key', undefined, { kind: 'PK', hasOwnPassword: false },
+    );
+  });
+});
+
 describe('wallet ledger serialization', () => {
   it('holds the workspace mutex through the awaited authoritative ledger write', async () => {
     const events: string[] = [];

@@ -117,6 +117,10 @@ curl -X POST "$API_URL/accounts" \
 The service does not return a newly generated recovery phrase in plain text. Encrypted export must
 be enabled by the operator and requested with an `export`-scoped token.
 
+Account display names are cleaned before use and must be 4–64 characters afterward. The service
+returns a lowercase account ID (`slug`) derived from the name; always save and use that returned
+ID, because it may differ from the display name or include a numeric suffix when names collide.
+
 ## Key APIs
 
 All routes use the `/v1` prefix.
@@ -161,9 +165,16 @@ response. Errors use one predictable shape:
 ```
 
 Use `error.code` for application decisions. Keep `requestId` when asking an operator for help.
+For requests accepted by the HTTP server, clients may send an `X-Request-ID` for tracing when it is 1–128 letters, digits, dots,
+underscores, or hyphens. If it is missing or unsafe, the service creates a safe ID instead. The
+same ID appears in the response header and error body.
 
 Common situations include expired tokens (`session_expired`), missing permissions
 (`scope_denied`), usage limits, unavailable network providers, and invalid request data.
+For invalid requests, `invalid_slug` means a workspace or account ID has invalid syntax,
+`invalid_body` means the JSON shape or field combination is wrong, and `invalid_parameter` means
+a path or query selector is malformed. `unsupported_for_kind` means the selected account, wallet,
+or chain type cannot perform that otherwise valid operation.
 
 Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
 check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may

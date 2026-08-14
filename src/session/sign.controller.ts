@@ -39,7 +39,7 @@ export class SignController {
   ): Promise<{ address: string; signature: string; messageHash?: string }> {
     const parsed = SignMessage.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { address, message, encoding? }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { address, message, encoding? }');
     }
 
     const address = await this.resolve(session, parsed.data.address);
@@ -62,12 +62,12 @@ export class SignController {
   ): Promise<{ address: string; signature: string; domainSeparator: string; structHash: string }> {
     const parsed = SignTypedData.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { address, typedData, chainId? }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { address, typedData, chainId? }');
     }
 
     const address = await this.resolve(session, parsed.data.address);
     if (address.vm !== 'evm') {
-      throw new TeeError('TEE_INVALID_SLUG', 'typed-data signing is EVM only');
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'typed-data signing is EVM only');
     }
 
     // Falls back to the address's own network rather than defaulting to a

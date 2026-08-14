@@ -83,7 +83,7 @@ describe('RPC egress boundary', () => {
     const tenant: Tenant = {
       id: 'tenant-a',
       apiKey: 'a'.repeat(16),
-      secretHash: 'b'.repeat(32),
+      secretHash: 'b'.repeat(64),
       limits: { maxWorkspaces: 1, maxWallets: 1, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 60, workspaceAbsoluteSec: 120, accountAbsoluteSec: 30 },
       rpc: { ethereum: 'https://127.0.0.1/internal' },

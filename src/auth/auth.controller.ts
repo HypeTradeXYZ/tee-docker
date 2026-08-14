@@ -52,7 +52,7 @@ export class AuthController {
   ): Promise<{ token: string; expiresAt: string; workspace: string; scopes: string[] }> {
     const parsed = TokenBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'body must be { workspace, password, scopes? }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { workspace, password, scopes? }');
     }
 
     // Before the KDF, not after — the whole point is to not spend it.
@@ -105,7 +105,7 @@ export class AuthController {
     scopes: string[];
   }> {
     if (!RefreshBody.safeParse(body === undefined ? {} : body).success) {
-      throw new TeeError('TEE_INVALID_SLUG', 'refresh body must be empty');
+      throw new TeeError('TEE_INVALID_BODY', 'refresh body must be empty');
     }
     const grant = await this.sessions.refresh(session, jti, tenant.ttl.workspaceIdleSec);
     const signed = this.jwt.sign(
@@ -147,7 +147,7 @@ function resolveScopes(requested: string[] | undefined, tenant: Tenant): string[
 
   const unknown = requested.filter((s) => !GRANTABLE_SCOPES.has(s));
   if (unknown.length > 0) {
-    throw new TeeError('TEE_INVALID_SLUG', `unknown scope: ${unknown.join(', ')}`);
+    throw new TeeError('TEE_INVALID_BODY', 'requested scopes are not supported');
   }
 
   // Export is refused at mint time when the tenant has no registered public
