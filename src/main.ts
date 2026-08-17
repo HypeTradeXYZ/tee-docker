@@ -12,7 +12,10 @@ async function bootstrap(): Promise<void> {
   // stay lazy: load env files before Nest constructs any config providers.
   const loaded = loadEnvFiles();
 
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  // abortOnError:false so a provider failure REJECTS this promise instead of
+  // Nest exiting from inside create() — otherwise the deliberate message the
+  // config loaders were written to produce never reaches the catch below.
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, abortOnError: false });
   installFatalHandlers(app);
   installRequestIdMiddleware(app);
   app.setGlobalPrefix('v1');
@@ -42,15 +45,27 @@ function installFatalHandlers(app: INestApplication): void {
   const die = (event: string, reason: unknown): void => {
     if (exiting) return;
     exiting = true;
-    log.error(`${event}: ${describeFatal(reason)}`);
-    void app
-      .get(SessionRegistry)
-      .lockAllHandlesBestEffort()
-      .then((failures) => {
-        for (const failure of failures) log.error(`lock failed: ${describeFatal(failure)}`);
-      })
-      .catch(() => undefined)
-      .finally(() => process.exit(1));
+    // Installing a handler stops Node terminating by itself, so anything that
+    // throws in here would leave the process alive forever. Every step is
+    // guarded and a watchdog guarantees the exit.
+    setTimeout(() => process.exit(1), 10_000).unref();
+    try {
+      log.error(`${event}: ${describeFatal(reason)}`);
+      void app
+        .get(SessionRegistry)
+        .lockAllHandlesBestEffort()
+        .then((failures) => {
+          for (const failure of failures) log.error(`lock failed: ${describeFatal(failure)}`);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          Logger.flush();
+          process.exit(1);
+        });
+    } catch {
+      Logger.flush();
+      process.exit(1);
+    }
   };
 
   process.on('unhandledRejection', (reason) => die('unhandledRejection', reason));
@@ -71,5 +86,8 @@ bootstrap().catch((err: unknown) => {
   // A boot failure is deliberate and already described; surfacing it as an
   // unhandled rejection would bury that message under a stack trace.
   new Logger('bootstrap').fatal(describeFatal(err));
+  // bufferLogs holds everything until a successful listen, so without this an
+  // operator gets exit code 1 and no output at all.
+  Logger.flush();
   process.exit(1);
 });

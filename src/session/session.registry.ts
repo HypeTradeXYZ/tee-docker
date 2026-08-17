@@ -181,27 +181,77 @@ export class SessionRegistry implements OnApplicationShutdown {
   async lockAllHandlesBestEffort(timeoutMs = 5_000): Promise<unknown[]> {
     this.#shuttingDown = true;
     const failures: unknown[] = [];
+    const note = (err: unknown): void => {
+      failures.push(err);
+    };
+
+    // Custody first. Book-keeping that can throw must not abort the run before
+    // a single handle is locked, so every step is individually guarded.
     try {
       if (this.#sweeper) clearInterval(this.#sweeper);
-      for (const session of this.#sessions.values()) this.clearAccountTimer(session);
+    } catch (err) {
+      note(err);
+    }
+    for (const session of this.#sessions.values()) {
+      try {
+        this.clearAccountTimer(session);
+      } catch (err) {
+        note(err);
+      }
+    }
 
-      const attempts = [...this.#workspaces.values()].map(async (entry) => {
-        if (entry.session) await this.closeEntry(entry);
-        else if (entry.provisioningHandle) await this.closeProvisioningEntry(entry);
-      });
-      const timedOut = Symbol('timeout');
-      const settled = await Promise.race([
-        Promise.allSettled(attempts),
-        new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), timeoutMs)),
-      ]);
-      if (settled === timedOut) failures.push(new Error('locking timed out'));
-      else {
-        for (const result of settled) {
-          if (result.status === 'rejected') failures.push(result.reason);
+    const timedOut = Symbol('timeout');
+    let deadline: NodeJS.Timeout | undefined;
+    const expiry = new Promise<typeof timedOut>((resolve) => {
+      deadline = setTimeout(() => resolve(timedOut), timeoutMs);
+      deadline.unref();
+    });
+
+    try {
+      // An entry still opening holds a decrypted handle that has not been
+      // published yet, so iterating #workspaces alone would report success
+      // while that handle dies unlocked. Draining the jobs and taking each
+      // lifecycle key is what makes an in-flight open visible — the same
+      // reason onApplicationShutdown does it.
+      const drain = (async () => {
+        while (this.#lifecycleJobs.size > 0) {
+          await Promise.allSettled([...this.#lifecycleJobs]);
         }
+        const results = await Promise.allSettled(
+          [...this.#workspaces.keys()].map((key) =>
+            this.#lifecycle.runExclusive(key, async () => {
+              const entry = this.#workspaces.get(key);
+              if (entry?.session) await this.closeEntry(entry);
+              else if (entry?.provisioningHandle) await this.closeProvisioningEntry(entry);
+            }),
+          ),
+        );
+        for (const result of results) {
+          if (result.status === 'rejected') note(result.reason);
+        }
+      })();
+
+      if ((await Promise.race([drain.then(() => 'done' as const), expiry])) === timedOut) {
+        // Name what is still holding material rather than a bare "timed out":
+        // the operator needs to know which workspaces are unaccounted for.
+        const stranded = [...this.#workspaces.values()]
+          .filter((entry) => entry.session ?? entry.provisioningHandle)
+          .map((entry) => entry.workspaceSlug);
+        note(new Error(`locking timed out with ${stranded.length} workspace(s) unlocked`));
       }
     } catch (err) {
-      failures.push(err);
+      note(err);
+    } finally {
+      if (deadline) clearTimeout(deadline);
+    }
+
+    // Release the ledger's process lock too. Skipping it converts a crash with
+    // unlocked keys into a crash with locked keys and a service that will not
+    // restart, which is the worse of the two.
+    try {
+      await this.state.close();
+    } catch (err) {
+      note(err);
     }
     return failures;
   }

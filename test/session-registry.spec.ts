@@ -902,6 +902,59 @@ describe('SessionRegistry storage identity and admission ordering', () => {
   });
 });
 
+describe('wallet reconciliation refuses an undercount (L-13)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function build(damaged: string[], walletsPerAccount: number) {
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 4,
+          workspaces: [{ slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 4 }],
+        },
+      },
+    };
+    const mutate = jest.fn(async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft));
+    const state = {
+      close: async () => undefined,
+      tenant: () => draft.tenants.acme,
+      mutate,
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-l13-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      testStorage,
+    );
+    const session = {
+      tenantId: 'acme',
+      workspaceSlug: 'desk-a',
+      handle: {
+        damagedAccountSlugs: damaged,
+        accounts: [{ wallets: new Array(walletsPerAccount).fill({}) }],
+      },
+    } as never;
+    return { registry, session, draft, mutate };
+  }
+
+  it('leaves the stored count alone when an account record is damaged', async () => {
+    // The live collection omits damaged accounts, so writing its count as
+    // authoritative permanently lowers the tenant's quota.
+    const { registry, session, draft, mutate } = build(['alpha'], 1);
+    await registry.syncWalletCount(session);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(draft.tenants.acme.workspaces[0]!.walletCount).toBe(4);
+    expect(draft.tenants.acme.walletTotal).toBe(4);
+  });
+
+  it('reconciles normally when nothing is damaged', async () => {
+    const { registry, session, draft } = build([], 2);
+    await registry.syncWalletCount(session);
+    expect(draft.tenants.acme.workspaces[0]!.walletCount).toBe(2);
+    expect(draft.tenants.acme.walletTotal).toBe(2);
+  });
+});
+
 describe('Cold Vault accounts are not exposed by creation (L-07)', () => {
   afterEach(() => jest.restoreAllMocks());
 
@@ -996,8 +1049,9 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
       { process: 4, leasesPerWorkspace: 4 },
       testStorage,
     );
-    jest.spyOn(Workspace, 'open').mockResolvedValue({ accounts: [], lock } as unknown as Workspace);
-    return { registry, stateClose };
+    const handle = { accounts: [], lock } as unknown as Workspace;
+    jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
+    return { registry, stateClose, handle };
   }
 
   it('locks every handle and reports nothing when all succeed', async () => {
@@ -1034,6 +1088,64 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
     const failures = await registry.lockAllHandlesBestEffort(25);
     expect(failures).toHaveLength(1);
     expect(String(failures[0])).toContain('timed out');
+  });
+
+  it('locks a workspace whose open is still in flight', async () => {
+    // The defect this primitive shipped with: iterating #workspaces alone
+    // misses an entry still opening, and reports total success while a fully
+    // decrypted handle goes to the grave unlocked.
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose, handle } = fixture(lock);
+    let entered!: () => void;
+    let release!: () => void;
+    const openEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    jest.spyOn(Workspace, 'open').mockImplementation(async () => {
+      entered();
+      await gate;
+      return handle;
+    });
+
+    const creating = registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    await openEntered;
+    const locking = registry.lockAllHandlesBestEffort();
+    release();
+
+    await expect(creating).rejects.toMatchObject({ code: 'TEE_SESSION_EXPIRED' });
+    await expect(locking).resolves.toEqual([]);
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the ledger process lock so the next boot is not blocked', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+
+    await registry.lockAllHandlesBestEffort();
+    expect(stateClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('records book-keeping failures instead of throwing', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    jest
+      .spyOn(registry as unknown as { clearAccountTimer: () => void }, 'clearAccountTimer')
+      .mockImplementation(() => {
+        throw new Error('scheduler exploded');
+      });
+
+    // A fatal-exit handler cannot let this throw, and the ledger lock must
+    // still be released. See R-14 for the residual: closeEntry runs fallible
+    // book-keeping before handle.lock(), so this failure does cost that lock.
+    const failures = await registry.lockAllHandlesBestEffort();
+    expect(failures.map(String).join()).toContain('scheduler exploded');
+    expect(stateClose).toHaveBeenCalledTimes(1);
   });
 
   it('refuses new work once it has run', async () => {
