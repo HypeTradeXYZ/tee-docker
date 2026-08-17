@@ -95,19 +95,49 @@ describe('mint rate limit bounds and window (L-09)', () => {
     expect(() => limiter.check('acme')).not.toThrow();
   });
 
-  it('reports a finite retryAfterSec inside the window', () => {
-    jest.useFakeTimers().setSystemTime(new Date('2026-08-16T00:00:00.000Z'));
-    const limiter = new MintRateLimiter(1);
-    limiter.check('acme');
+  function retryAfterOf(fn: () => void): number {
     try {
-      limiter.check('acme');
-      throw new Error('expected a rejection');
+      fn();
     } catch (err) {
       const details = (err as { details?: { retryAfterSec?: number } }).details;
-      expect(Number.isInteger(details?.retryAfterSec)).toBe(true);
-      expect(details!.retryAfterSec).toBeGreaterThanOrEqual(1);
-      expect(details!.retryAfterSec).toBeLessThanOrEqual(60);
+      return details!.retryAfterSec!;
     }
+    throw new Error('expected a rejection');
+  }
+
+  it('derives retryAfterSec from the oldest hit still in the window', () => {
+    // An exact value, not a 1..60 range: a range is satisfied equally by
+    // deriving it from the NEWEST hit, which overstates client backoff.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-16T00:00:00.000Z'));
+    const limiter = new MintRateLimiter(2);
+    limiter.check('acme');
+    jest.setSystemTime(new Date('2026-08-16T00:00:20.000Z'));
+    limiter.check('acme');
+
+    jest.setSystemTime(new Date('2026-08-16T00:00:31.000Z'));
+    expect(retryAfterOf(() => limiter.check('acme'))).toBe(29);
+  });
+
+  it('expires hits individually, not the whole bucket at once', () => {
+    // The defining property of a sliding window. Accepting every timestamp at
+    // one instant cannot distinguish this from all-or-nothing expiry keyed on
+    // the oldest entry.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-16T00:00:00.000Z'));
+    const limiter = new MintRateLimiter(4);
+    limiter.check('acme');
+    limiter.check('acme');
+
+    jest.setSystemTime(new Date('2026-08-16T00:00:30.000Z'));
+    limiter.check('acme');
+    limiter.check('acme');
+    expect(() => limiter.check('acme')).toThrow();
+
+    // The two oldest have aged out; the two from +30s have not.
+    jest.setSystemTime(new Date('2026-08-16T00:01:00.001Z'));
+    expect(() => limiter.check('acme')).not.toThrow();
+    expect(() => limiter.check('acme')).not.toThrow();
+    expect(() => limiter.check('acme')).toThrow();
+    expect(Math.max(...limiter.bucketSizes)).toBe(4);
   });
 
   it('counts each tenant separately', () => {

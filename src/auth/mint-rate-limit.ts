@@ -5,8 +5,10 @@ import { TeeError } from '../common/tee-error';
 /** Sliding window. Small numbers because each mint costs a real KDF. */
 const WINDOW_MS = 60_000;
 const DEFAULT_MAX_PER_WINDOW = 10;
-// Matches WorkspaceCreationLimiter. Each bucket holds up to the limit, and
-// check() refilters the whole bucket, so an unbounded limit is a CPU cliff.
+// An operator-trust ceiling on a config value, matching WorkspaceCreationLimiter
+// — it catches typos and keeps a bucket small. It is NOT the safety bound on
+// mint cost: that is the KDF, and at this ceiling a tenant may authorise far
+// more derivation than one core can serve. Setting it high is a deliberate act.
 const MAX_RATE_LIMIT = 10_000;
 const CoercedPositiveSafeInteger = z.coerce
   .number()
