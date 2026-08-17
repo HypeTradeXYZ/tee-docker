@@ -105,6 +105,12 @@ export class WorkspaceCreationLimiter {
         retryAfterSec: retryAfterSeconds(
           retryAt,
           now,
+          // The rate leg can never exceed one window. The cooldown leg keeps
+          // the config MAXIMUM, not the configured value: a persisted deadline
+          // is absolute and may legitimately outlive a since-shortened config,
+          // and clamping to the current value would mask that. A stale deadline
+          // therefore still reports as far away — that is R-10's territory,
+          // where the enforcement and the hint are reconciled at the source.
           cooldownWon ? MAX_COOLDOWN_SEC : WINDOW_MS / 1000,
         ),
       });
