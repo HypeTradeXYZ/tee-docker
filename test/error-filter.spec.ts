@@ -632,3 +632,46 @@ describe('details sanitizer refuses exotic shapes (L-11 adversary)', () => {
     expect(render({ required: ['sign'] }).body.error.details).toEqual({ required: ['sign'] });
   });
 });
+
+describe('rate-limited responses carry Retry-After (R-12)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+
+  function render(exception: unknown) {
+    const json = jest.fn();
+    const setHeader = jest.fn();
+    const statusFn = jest.fn(() => ({ json }));
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: statusFn, setHeader }),
+        getRequest: () => ({ requestId: 'r12-request' }),
+      }),
+    } as unknown as ArgumentsHost;
+    filter.catch(exception, host);
+    return { setHeader, statusFn, json };
+  }
+
+  it('sets the header from the same value as the body field', () => {
+    const { setHeader, statusFn } = render(
+      new TeeError('TEE_UNLOCK_CAPACITY', 'too many token requests', { retryAfterSec: 17 }),
+    );
+    expect(statusFn).toHaveBeenCalledWith(429);
+    expect(setHeader).toHaveBeenCalledWith('retry-after', '17');
+  });
+
+  it('does not set it on responses that are not rate limits', () => {
+    const { setHeader } = render(new TeeError('TEE_INVALID_BODY', 'body must be { count }'));
+    expect(setHeader).not.toHaveBeenCalledWith('retry-after', expect.anything());
+  });
+
+  it('omits it rather than emitting a nonsense value', () => {
+    // details is refused wholesale when a member is unrepresentable, so there
+    // is no number to advertise.
+    const { setHeader } = render(
+      new TeeError('TEE_UNLOCK_CAPACITY', 'too many', { retryAfterSec: Number.NaN }),
+    );
+    expect(setHeader).not.toHaveBeenCalledWith('retry-after', expect.anything());
+  });
+});

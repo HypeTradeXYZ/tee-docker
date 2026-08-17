@@ -70,6 +70,16 @@ export class ErrorFilter implements ExceptionFilter {
       this.logger.warn(`[${requestId}] ${body.error.code} ${status}`);
     }
 
+    // A body field is invisible to proxies and standard HTTP clients, which
+    // look for the header. Same clamped value, one source.
+    const retryAfter = body.error.details?.retryAfterSec;
+    if (status === 429 && typeof retryAfter === 'number' && Number.isFinite(retryAfter)) {
+      try {
+        res.setHeader('retry-after', String(Math.max(1, Math.ceil(retryAfter))));
+      } catch {
+        // A response already past its headers is not worth failing over.
+      }
+    }
     res.status(status).json(body);
   }
 
