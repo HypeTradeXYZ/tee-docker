@@ -5,8 +5,16 @@ import { TeeError } from '../common/tee-error';
 /** Sliding window. Small numbers because each mint costs a real KDF. */
 const WINDOW_MS = 60_000;
 const DEFAULT_MAX_PER_WINDOW = 10;
-const CoercedPositiveSafeInteger = z.coerce.number().int().positive().safe();
-const PositiveSafeInteger = z.number().int().positive().safe();
+// Matches WorkspaceCreationLimiter. Each bucket holds up to the limit, and
+// check() refilters the whole bucket, so an unbounded limit is a CPU cliff.
+const MAX_RATE_LIMIT = 10_000;
+const CoercedPositiveSafeInteger = z.coerce
+  .number()
+  .int()
+  .positive()
+  .safe()
+  .max(MAX_RATE_LIMIT);
+const PositiveSafeInteger = z.number().int().positive().safe().max(MAX_RATE_LIMIT);
 
 export function mintRateLimitFromEnv(env: NodeJS.ProcessEnv = process.env): number {
   const value = env.TEE_MINT_RATE_LIMIT;
@@ -14,7 +22,7 @@ export function mintRateLimitFromEnv(env: NodeJS.ProcessEnv = process.env): numb
     value === undefined ? DEFAULT_MAX_PER_WINDOW : value,
   );
   if (!parsed.success) {
-    throw new Error('TEE_MINT_RATE_LIMIT must be a positive safe integer');
+    throw new Error(`TEE_MINT_RATE_LIMIT must be an integer between 1 and ${MAX_RATE_LIMIT}`);
   }
   return parsed.data;
 }
@@ -32,12 +40,16 @@ export function mintRateLimitFromEnv(env: NodeJS.ProcessEnv = process.env): numb
 @Injectable()
 export class MintRateLimiter {
   private readonly logger = new Logger(MintRateLimiter.name);
+  // Keyed only by authenticated tenant ids, so the key set is the boot-time
+  // tenant table and each bucket holds at most MAX_RATE_LIMIT timestamps.
   readonly #hits = new Map<string, number[]>();
   private readonly maxPerWindow: number;
 
   constructor(maxPerWindow: number) {
     const parsed = PositiveSafeInteger.safeParse(maxPerWindow);
-    if (!parsed.success) throw new Error('mint rate limit must be a positive safe integer');
+    if (!parsed.success) {
+      throw new Error(`mint rate limit must be an integer between 1 and ${MAX_RATE_LIMIT}`);
+    }
     this.maxPerWindow = parsed.data;
   }
 
@@ -66,15 +78,5 @@ export class MintRateLimiter {
 
     recent.push(now);
     this.#hits.set(tenantId, recent);
-  }
-
-  /** Drop tenants with no recent activity, so the map cannot grow unbounded. */
-  prune(): void {
-    const cutoff = Date.now() - WINDOW_MS;
-    for (const [tenantId, times] of this.#hits) {
-      const recent = times.filter((t) => t > cutoff);
-      if (recent.length === 0) this.#hits.delete(tenantId);
-      else this.#hits.set(tenantId, recent);
-    }
   }
 }

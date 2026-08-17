@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { authHeaders, boot, DEFAULT_TENANT, type Harness } from '../harness/boot';
+import { MintRateLimiter } from '../../src/auth/mint-rate-limit';
 
 const WS_PASSWORD = 'Workspace-Passw0rd!x';
 
@@ -75,11 +76,20 @@ describe('mint-rate-limit-flow', () => {
     }
   });
 
-  it.each(['', ' ', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992'])(
+  it('boots at the maximum limit', async () => {
+    const capped = await boot({ env: { TEE_MINT_RATE_LIMIT: '10000' } });
+    try {
+      expect(capped.app.get(MintRateLimiter).limit).toBe(10_000);
+    } finally {
+      await capped.close();
+    }
+  });
+
+  it.each(['', ' ', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992', '10001'])(
     'refuses to boot with invalid TEE_MINT_RATE_LIMIT=%p',
     async (value) => {
       await expect(boot({ env: { TEE_MINT_RATE_LIMIT: value } })).rejects.toThrow(
-        'TEE_MINT_RATE_LIMIT must be a positive safe integer',
+        'TEE_MINT_RATE_LIMIT must be an integer between 1 and 10000',
       );
     },
   );
