@@ -122,7 +122,7 @@ export class ErrorFilter implements ExceptionFilter {
       // enclave. A future core release adding its own `details` cannot ride
       // this, because an unbranded error never reaches it.
       if (mapped.exposeDetails && reviewed !== undefined && exception.details) {
-        const safe = jsonSafe(exception.details);
+        const safe = jsonSafe(exception.details, { nodes: MAX_DETAIL_NODES });
         if (safe !== undefined) body.error.details = safe as Record<string, unknown>;
       }
       return { status: mapped.status, body };
@@ -194,16 +194,23 @@ function readStatusField(
 
 const MAX_DETAIL_DEPTH = 5;
 const MAX_DETAIL_ITEMS = 32;
+const MAX_DETAIL_NODES = 256;
+const MAX_DETAIL_STRING = 200;
 
 // NaN and Infinity serialize to null, so a client reading a contractually
-// numeric field gets a silent lie. Drop what cannot be represented rather than
-// coercing it, and refuse anything unserializable outright.
-function jsonSafe(value: unknown, depth = 0): unknown {
+// numeric field gets a silent lie. Rebuild the payload from plain accumulators
+// and refuse anything that cannot be represented exactly: an exotic object that
+// survives here would be serialized a second time by the response writer, where
+// its toJSON could disagree with what was validated.
+function jsonSafe(value: unknown, budget: { nodes: number }, depth = 0): unknown {
   if (depth > MAX_DETAIL_DEPTH) return undefined;
+  if (budget.nodes <= 0) return undefined;
+  budget.nodes -= 1;
   if (value === null) return null;
+
   switch (typeof value) {
     case 'string':
-      return value.length > 200 ? undefined : value;
+      return value.length > MAX_DETAIL_STRING ? undefined : value;
     case 'boolean':
       return value;
     case 'number':
@@ -213,27 +220,46 @@ function jsonSafe(value: unknown, depth = 0): unknown {
     default:
       return undefined;
   }
-  if (Array.isArray(value)) {
-    // Refuse rather than truncate: a silently shortened list is the same class
-    // of lie as a number that serialized to null.
-    if (value.length > MAX_DETAIL_ITEMS) return undefined;
-    const out = value.map((item) => jsonSafe(item, depth + 1));
-    return out.some((item) => item === undefined) ? undefined : out;
-  }
-  const source = value as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(source)) {
-    let entry: unknown;
-    try {
-      entry = source[key];
-    } catch {
-      return undefined;
+
+  try {
+    // Boxed primitives, Date, typed arrays and every other exotic render as
+    // something other than their value; only plain objects and arrays pass.
+    const tag = Object.prototype.toString.call(value);
+    if (tag !== '[object Object]' && tag !== '[object Array]') return undefined;
+
+    if (Array.isArray(value)) {
+      if (value.length > MAX_DETAIL_ITEMS) return undefined;
+      const out: unknown[] = [];
+      for (let i = 0; i < value.length; i += 1) {
+        // A hole is not a value; map/some would let it through as null.
+        if (!Object.prototype.hasOwnProperty.call(value, i)) return undefined;
+        const safe = jsonSafe(value[i], budget, depth + 1);
+        if (safe === undefined) return undefined;
+        out.push(safe);
+      }
+      return out;
     }
-    const safe = jsonSafe(entry, depth + 1);
-    if (safe === undefined) return undefined;
-    out[key] = safe;
+
+    const source = value as Record<string, unknown>;
+    const keys = Object.keys(source);
+    if (keys.length > MAX_DETAIL_ITEMS) return undefined;
+    const out: Record<string, unknown> = {};
+    for (const key of keys) {
+      // Assigning this key would run a setter and rebind the accumulator.
+      if (key === '__proto__') return undefined;
+      const safe = jsonSafe(source[key], budget, depth + 1);
+      if (safe === undefined) return undefined;
+      Object.defineProperty(out, key, {
+        value: safe,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  } catch {
+    return undefined;
   }
-  return out;
 }
 
 // Reviewed map text wins everywhere. A 5xx stays opaque even when tee-docker

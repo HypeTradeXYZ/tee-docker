@@ -553,3 +553,82 @@ describe('details never serialize to a lie (L-11)', () => {
     expect(() => JSON.stringify(json.mock.calls[0]![0])).not.toThrow();
   });
 });
+
+describe('details sanitizer refuses exotic shapes (L-11 adversary)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+  const render = (details: Record<string, unknown>) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: { error: Record<string, unknown> } };
+    }).render(new TeeError('TEE_UNLOCK_CAPACITY', 'too many', details), 'l11a-request');
+
+  it('refuses an Array subclass whose toJSON could differ on a second pass', () => {
+    class Evil extends Array {
+      #calls = 0;
+      toJSON(): unknown {
+        this.#calls += 1;
+        return this.#calls > 1 ? 'ATTACKER-CONTROLLED' : { retryAfterSec: 30 };
+      }
+    }
+    const list = new Evil();
+    list.push(1);
+    const rendered = render({ list });
+    // Rebuilt as a plain array, so the subclass's toJSON is gone: the value
+    // survives but its behaviour does not.
+    expect(rendered.body.error.details).toEqual({ list: [1] });
+    const details = rendered.body.error.details as { list: unknown[] };
+    expect(Object.getPrototypeOf(details.list)).toBe(Array.prototype);
+    // The two serializations must agree, or the response writer escapes the filter.
+    expect(JSON.stringify(rendered)).toBe(JSON.stringify(rendered));
+    expect(JSON.stringify(rendered)).not.toContain('ATTACKER-CONTROLLED');
+  });
+
+  it('refuses a sparse array rather than emitting holes as null', () => {
+    const sparse: unknown[] = [];
+    sparse[2] = 7;
+    const rendered = render({ window: sparse });
+    expect(rendered.body.error.details).toBeUndefined();
+    expect(JSON.stringify(rendered)).not.toContain('null');
+  });
+
+  it.each([
+    ['a revoked proxy', () => { const r = Proxy.revocable({}, {}); r.revoke(); return r.proxy; }],
+    ['a hostile ownKeys trap', () => new Proxy({}, { ownKeys() { throw new Error('boom'); } })],
+    ['a boxed string past the cap', () => new String('a'.repeat(300))],
+    ['a Date', () => new Date(0)],
+    ['a typed array', () => new Uint8Array([1, 2, 3])],
+  ])('refuses %s without losing the mapped status', (_name, make) => {
+    const rendered = render({ hostile: make() as unknown });
+    // Still the reviewed 429, not an opaque 500.
+    expect(rendered.status).toBe(429);
+    expect(rendered.body.error.details).toBeUndefined();
+  });
+
+  it('refuses a __proto__ key instead of rebinding the accumulator', () => {
+    const rendered = render(JSON.parse('{"__proto__":{"polluted":true}}') as Record<string, unknown>);
+    expect(rendered.body.error.details).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it('bounds a wide shared-subtree graph', () => {
+    const leaf: Record<string, unknown> = { a: 1 };
+    let level: Record<string, unknown> = leaf;
+    for (let d = 0; d < 5; d += 1) {
+      const next: Record<string, unknown> = {};
+      for (let i = 0; i < 32; i += 1) next[`k${i}`] = level;
+      level = next;
+    }
+    const started = Date.now();
+    const rendered = render(level);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(JSON.stringify(rendered).length).toBeLessThan(100_000);
+  });
+
+  it('still passes the payloads that actually ship', () => {
+    expect(render({ retryAfterSec: 42 }).body.error.details).toEqual({ retryAfterSec: 42 });
+    expect(render({ scope: 'read', limit: 8 }).body.error.details).toEqual({ scope: 'read', limit: 8 });
+    expect(render({ required: ['sign'] }).body.error.details).toEqual({ required: ['sign'] });
+  });
+});
