@@ -58,7 +58,12 @@ export class AccountsService {
           input.defaultNetwork,
           { kind: input.kind, hasOwnPassword: ownPassword },
         );
-        this.sessions.recordAccountExposure(session, String(account.slug));
+        // Creating a Cold Vault account is not unlocking it. Recording an
+        // exposure episode here would hand the account to every lease on this
+        // session — requireAccount returns a live-custody account before it
+        // reaches the hasOwnPassword gate — for the whole account TTL, which
+        // is the tier this flag exists to provide.
+        if (!ownPassword) this.sessions.recordAccountExposure(session, String(account.slug));
         return account;
       },
     );

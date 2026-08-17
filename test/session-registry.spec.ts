@@ -902,6 +902,72 @@ describe('SessionRegistry storage identity and admission ordering', () => {
   });
 });
 
+describe('Cold Vault accounts are not exposed by creation (L-07)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it('does not record an unlock episode for an own-password account', async () => {
+    // requireAccount returns a live-custody account BEFORE it reaches the
+    // hasOwnPassword gate, so recording exposure at creation would hand the
+    // vault to every lease on the session for the whole account TTL.
+    const { AccountsService } = await import('../src/session/accounts.service');
+    const recordAccountExposure = jest.fn();
+    const account = { slug: 'vault-a', hasOwnPassword: true, wallets: [] };
+    const handle = {
+      accounts: Object.assign([], { create: jest.fn().mockResolvedValue(account) }),
+    };
+    const session = { handle, password: 'workspace-password', workspaceSlug: 'desk-a' } as never;
+    const tenant = { id: 'acme', limits: { maxWallets: 10 } } as never;
+    const state = {
+      mutate: async <T>(fn: (d: unknown) => T): Promise<T> =>
+        fn({ tenants: { acme: { walletTotal: 0, workspaces: [{ slug: 'desk-a', walletCount: 0 }] } } }),
+    };
+    const service = new AccountsService(
+      {
+        recordAccountExposure,
+        requireAccount: jest.fn(),
+        syncWalletCount: jest.fn().mockResolvedValue(undefined),
+        markUnusable: jest.fn(),
+      } as never,
+      state as never,
+    );
+
+    await service.create(session, tenant, {
+      displayName: 'Cold vault account',
+      kind: 'HD',
+      hasOwnPassword: true,
+      accountPassword: 'Vault-Passw0rd!x',
+    });
+    expect(recordAccountExposure).not.toHaveBeenCalled();
+  });
+
+  it('still records one for an ordinary account', async () => {
+    const { AccountsService } = await import('../src/session/accounts.service');
+    const recordAccountExposure = jest.fn();
+    const account = { slug: 'plain-a', hasOwnPassword: false, wallets: [] };
+    const handle = {
+      accounts: Object.assign([], { create: jest.fn().mockResolvedValue(account) }),
+    };
+    const session = { handle, password: 'workspace-password', workspaceSlug: 'desk-a' } as never;
+    const tenant = { id: 'acme', limits: { maxWallets: 10 } } as never;
+    const state = {
+      mutate: async <T>(fn: (d: unknown) => T): Promise<T> =>
+        fn({ tenants: { acme: { walletTotal: 0, workspaces: [{ slug: 'desk-a', walletCount: 0 }] } } }),
+    };
+    const service = new AccountsService(
+      {
+        recordAccountExposure,
+        requireAccount: jest.fn(),
+        syncWalletCount: jest.fn().mockResolvedValue(undefined),
+        markUnusable: jest.fn(),
+      } as never,
+      state as never,
+    );
+
+    await service.create(session, tenant, { displayName: 'Plain account', kind: 'HD' });
+    expect(recordAccountExposure).toHaveBeenCalledWith(session, 'plain-a');
+  });
+});
+
 describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
   afterEach(() => jest.restoreAllMocks());
 

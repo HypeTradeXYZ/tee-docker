@@ -56,7 +56,7 @@ export class AccountsController {
   ): Promise<{ account: AccountView; generatedSecret: boolean }> {
     const parsed = CreateAccount.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { displayName, kind?, secret?, defaultNetwork? }');
+      throw new TeeError('TEE_INVALID_BODY', 'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword? }');
     }
 
     const account = await this.accounts.create(session, tenant, parsed.data);

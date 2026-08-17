@@ -76,6 +76,57 @@ describe('validation error taxonomy', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('refuses a private-key import addressed to an HD account, before quota work', async () => {
+    // L-06. Without this the whole suite stays green with the guard deleted:
+    // the only coverage was fixtures that happened to keep passing.
+    const mutate = jest.fn();
+    const requireAccount = jest.fn().mockResolvedValue({ organizationType: 'HD' });
+    const service = new AccountsService({ requireAccount } as never, { mutate } as never);
+
+    await expect(
+      service.importPrivateKey(session, tenant, 'account-a', '0xabc'),
+    ).rejects.toMatchObject({
+      code: 'TEE_UNSUPPORTED_FOR_KIND',
+      message: 'only a PK account can import a private key',
+    });
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null, 'pk', ' PK', ['PK']])(
+    'fails closed for the non-PK organizationType %p',
+    async (organizationType) => {
+      const mutate = jest.fn();
+      const requireAccount = jest.fn().mockResolvedValue({ organizationType });
+      const service = new AccountsService({ requireAccount } as never, { mutate } as never);
+
+      await expect(
+        service.importPrivateKey(session, tenant, 'account-a', '0xabc'),
+      ).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
+      expect(mutate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects hasOwnPassword without accountPassword, and the reverse', async () => {
+    // L-07. The flag is meaningless without a distinct password, and a
+    // password without the flag would be silently ignored.
+    const mutate = jest.fn();
+    const service = new AccountsService({} as never, { mutate } as never);
+
+    await expect(service.create(session, tenant, {
+      displayName: 'Valid account name',
+      kind: 'HD',
+      hasOwnPassword: true,
+    })).rejects.toMatchObject({ code: 'TEE_INVALID_BODY' });
+
+    await expect(service.create(session, tenant, {
+      displayName: 'Valid account name',
+      kind: 'HD',
+      accountPassword: 'Vault-Passw0rd!x',
+    })).rejects.toMatchObject({ code: 'TEE_INVALID_BODY' });
+
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
   it('classifies unsupported scopes and VM kind without reflecting caller values', async () => {
     const check = jest.fn();
     const create = jest.fn();
