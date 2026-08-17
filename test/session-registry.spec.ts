@@ -964,7 +964,8 @@ describe('Cold Vault accounts are not exposed by creation (L-07)', () => {
     // vault to every lease on the session for the whole account TTL.
     const { AccountsService } = await import('../src/session/accounts.service');
     const recordAccountExposure = jest.fn();
-    const account = { slug: 'vault-a', hasOwnPassword: true, wallets: [] };
+    const lockAccount = jest.fn().mockResolvedValue(undefined);
+    const account = { slug: 'vault-a', hasOwnPassword: true, wallets: [], lock: lockAccount };
     const handle = {
       accounts: Object.assign([], { create: jest.fn().mockResolvedValue(account) }),
     };
@@ -991,6 +992,9 @@ describe('Cold Vault accounts are not exposed by creation (L-07)', () => {
       accountPassword: 'Vault-Passw0rd!x',
     });
     expect(recordAccountExposure).not.toHaveBeenCalled();
+    // Without a custody entry the expiry timer never sees this account, so it
+    // must be locked outright or it outlives every other account's TTL.
+    expect(lockAccount).toHaveBeenCalledTimes(1);
   });
 
   it('still records one for an ordinary account', async () => {

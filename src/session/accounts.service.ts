@@ -71,7 +71,20 @@ export class AccountsService {
         // session — requireAccount returns a live-custody account before it
         // reaches the hasOwnPassword gate — for the whole account TTL, which
         // is the tier this flag exists to provide.
-        if (!ownPassword) this.sessions.recordAccountExposure(session, String(account.slug));
+        if (ownPassword) {
+          // Core hands it back decrypted because we supplied the password. With
+          // no custody entry the expiry timer never sees it, so without this the
+          // strictest tier would keep plaintext key material resident LONGEST —
+          // until the workspace handle closes rather than for accountAbsoluteSec.
+          try {
+            await account.lock();
+          } catch (lockError) {
+            this.sessions.markUnusable(session);
+            throw lockError;
+          }
+        } else {
+          this.sessions.recordAccountExposure(session, String(account.slug));
+        }
         return account;
       },
     );
