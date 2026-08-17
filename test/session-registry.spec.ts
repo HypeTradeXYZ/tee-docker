@@ -902,6 +902,84 @@ describe('SessionRegistry storage identity and admission ordering', () => {
   });
 });
 
+describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function fixture(lock: jest.Mock<Promise<void>, []>) {
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: ['desk-a', 'desk-b'].map((slug) => ({
+            slug,
+            createdAt: new Date(0).toISOString(),
+            walletCount: 0,
+          })),
+        },
+      },
+    };
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const state = {
+      close: stateClose,
+      tenant: () => draft.tenants.acme,
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-l12-test' } as Paths,
+      state,
+      { process: 4, leasesPerWorkspace: 4 },
+      testStorage,
+    );
+    jest.spyOn(Workspace, 'open').mockResolvedValue({ accounts: [], lock } as unknown as Workspace);
+    return { registry, stateClose };
+  }
+
+  it('locks every handle and reports nothing when all succeed', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    await registry.create(tenantFixture(), 'desk-b', 'password', ['read']);
+
+    await expect(registry.lockAllHandlesBestEffort()).resolves.toEqual([]);
+    expect(lock).toHaveBeenCalledTimes(2);
+    expect(registry.workspaceCount).toBe(0);
+  });
+
+  it('never throws, and one failure does not stop the others', async () => {
+    // A fatal-exit handler cannot let an exception escape, and a wedged
+    // workspace must not keep its siblings' keys resident.
+    const lock = jest.fn<Promise<void>, []>()
+      .mockRejectedValueOnce(new Error('core lock failure'))
+      .mockResolvedValue(undefined);
+    const { registry } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    await registry.create(tenantFixture(), 'desk-b', 'password', ['read']);
+
+    const failures = await registry.lockAllHandlesBestEffort();
+    expect(failures).toHaveLength(1);
+    expect(lock).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives up after the deadline rather than hanging the exit', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockImplementation(() => new Promise(() => {}));
+    const { registry } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+
+    const failures = await registry.lockAllHandlesBestEffort(25);
+    expect(failures).toHaveLength(1);
+    expect(String(failures[0])).toContain('timed out');
+  });
+
+  it('refuses new work once it has run', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry } = fixture(lock);
+    await registry.lockAllHandlesBestEffort();
+    await expect(
+      registry.create(tenantFixture(), 'desk-a', 'password', ['read']),
+    ).rejects.toMatchObject({ code: 'TEE_SESSION_EXPIRED' });
+  });
+});
+
 describe('SessionRegistry.knowsWorkspace (L-10)', () => {
   afterEach(() => jest.restoreAllMocks());
 

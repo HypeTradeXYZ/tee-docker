@@ -169,6 +169,42 @@ export class SessionRegistry implements OnApplicationShutdown {
     await this.state.close();
   }
 
+  /**
+   * Lock every decrypted handle, best effort, for a process that is dying.
+   *
+   * Never throws: a fatal-exit handler cannot let an exception escape, and one
+   * workspace failing to lock must not stop the others from locking. Returns
+   * what failed so the caller can log it, and gives up after `timeoutMs` so a
+   * wedged handle cannot keep key material resident indefinitely.
+   */
+  async lockAllHandlesBestEffort(timeoutMs = 5_000): Promise<unknown[]> {
+    this.#shuttingDown = true;
+    const failures: unknown[] = [];
+    try {
+      if (this.#sweeper) clearInterval(this.#sweeper);
+      for (const session of this.#sessions.values()) this.clearAccountTimer(session);
+
+      const attempts = [...this.#workspaces.values()].map(async (entry) => {
+        if (entry.session) await this.closeEntry(entry);
+        else if (entry.provisioningHandle) await this.closeProvisioningEntry(entry);
+      });
+      const timedOut = Symbol('timeout');
+      const settled = await Promise.race([
+        Promise.allSettled(attempts),
+        new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), timeoutMs)),
+      ]);
+      if (settled === timedOut) failures.push(new Error('locking timed out'));
+      else {
+        for (const result of settled) {
+          if (result.status === 'rejected') failures.push(result.reason);
+        }
+      }
+    } catch (err) {
+      failures.push(err);
+    }
+    return failures;
+  }
+
   // Deliberately wider than create()'s authoritative check, so it can never
   // turn a would-be success into a free 404. Charge/404 gate only.
   knowsWorkspace(tenantId: string, workspaceSlug: string): boolean {

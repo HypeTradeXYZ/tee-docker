@@ -1,9 +1,11 @@
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { INestApplication } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { loadEnvFiles } from './config/env';
 import { installRequestIdMiddleware } from './common/request-id.middleware';
+import { SessionRegistry } from './session/session.registry';
 
 async function bootstrap(): Promise<void> {
   // Static imports have already evaluated AppModule, so configuration must
@@ -11,6 +13,7 @@ async function bootstrap(): Promise<void> {
   const loaded = loadEnvFiles();
 
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  installFatalHandlers(app);
   installRequestIdMiddleware(app);
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
@@ -24,4 +27,49 @@ async function bootstrap(): Promise<void> {
   log.log(`tee-docker listening on :${port}`);
 }
 
-void bootstrap();
+/**
+ * A fatal error must not take decrypted key material to the grave unlocked.
+ *
+ * Nest's shutdown hooks do not run on an unhandled rejection or an uncaught
+ * exception, so lock explicitly here. The registry's best-effort primitive
+ * never throws and is bounded, because throwing inside an exception handler
+ * would replace the diagnosis with a second, less useful failure.
+ */
+function installFatalHandlers(app: INestApplication): void {
+  const log = new Logger('fatal');
+  let exiting = false;
+
+  const die = (event: string, reason: unknown): void => {
+    if (exiting) return;
+    exiting = true;
+    log.error(`${event}: ${describeFatal(reason)}`);
+    void app
+      .get(SessionRegistry)
+      .lockAllHandlesBestEffort()
+      .then((failures) => {
+        for (const failure of failures) log.error(`lock failed: ${describeFatal(failure)}`);
+      })
+      .catch(() => undefined)
+      .finally(() => process.exit(1));
+  };
+
+  process.on('unhandledRejection', (reason) => die('unhandledRejection', reason));
+  process.on('uncaughtException', (error) => die('uncaughtException', error));
+}
+
+/** Total, and never a full stack: this string is logged during a crash. */
+function describeFatal(value: unknown): string {
+  try {
+    if (value instanceof Error) return `${value.name}: ${value.message}`;
+    return typeof value === 'string' ? value : Object.prototype.toString.call(value);
+  } catch {
+    return 'unprintable value';
+  }
+}
+
+bootstrap().catch((err: unknown) => {
+  // A boot failure is deliberate and already described; surfacing it as an
+  // unhandled rejection would bury that message under a stack trace.
+  new Logger('bootstrap').fatal(describeFatal(err));
+  process.exit(1);
+});
