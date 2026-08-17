@@ -7,6 +7,10 @@ import { loadEnvFiles } from './config/env';
 import { installRequestIdMiddleware } from './common/request-id.middleware';
 import { SessionRegistry } from './session/session.registry';
 
+// Held so a failed boot can still release the ledger's process lock: without
+// it the next start fails closed on a lock this process left behind.
+let booted: INestApplication | undefined;
+
 async function bootstrap(): Promise<void> {
   // Static imports have already evaluated AppModule, so configuration must
   // stay lazy: load env files before Nest constructs any config providers.
@@ -16,6 +20,7 @@ async function bootstrap(): Promise<void> {
   // Nest exiting from inside create() — otherwise the deliberate message the
   // config loaders were written to produce never reaches the catch below.
   const app = await NestFactory.create(AppModule, { bufferLogs: true, abortOnError: false });
+  booted = app;
   installFatalHandlers(app);
   installRequestIdMiddleware(app);
   app.setGlobalPrefix('v1');
@@ -82,10 +87,17 @@ function describeFatal(value: unknown): string {
   }
 }
 
-bootstrap().catch((err: unknown) => {
+bootstrap().catch(async (err: unknown) => {
   // A boot failure is deliberate and already described; surfacing it as an
   // unhandled rejection would bury that message under a stack trace.
   new Logger('bootstrap').fatal(describeFatal(err));
+  // A half-started process may already hold the ledger lock. Releasing it is
+  // what makes the next start possible; there is no owner left to hold it for.
+  try {
+    await booted?.close();
+  } catch {
+    // Already reported; the exit below is what matters.
+  }
   // bufferLogs holds everything until a successful listen, so without this an
   // operator gets exit code 1 and no output at all.
   Logger.flush();

@@ -234,9 +234,10 @@ export class SessionRegistry implements OnApplicationShutdown {
       if ((await Promise.race([drain.then(() => 'done' as const), expiry])) === timedOut) {
         // Name what is still holding material rather than a bare "timed out":
         // the operator needs to know which workspaces are unaccounted for.
-        const stranded = [...this.#workspaces.values()]
-          .filter((entry) => entry.session ?? entry.provisioningHandle)
-          .map((entry) => entry.workspaceSlug);
+        // Count every entry, not just published ones: an entry whose open has
+        // not returned still holds a decrypted handle, and reporting 0 there
+        // tells the operator nothing is at risk when something is.
+        const stranded = [...this.#workspaces.values()].map((entry) => entry.workspaceSlug);
         note(new Error(`locking timed out with ${stranded.length} workspace(s) unlocked`));
       }
     } catch (err) {
