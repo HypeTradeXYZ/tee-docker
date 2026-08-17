@@ -66,8 +66,16 @@ export class ErrorFilter implements ExceptionFilter {
   }
 
   private render(exception: unknown, requestId: string): { status: number; body: ErrorBody } {
-    // Nest's own exceptions (404 on an unknown route, payload-too-large, ...)
-    // already carry a correct status; don't relabel them.
+    // Nest's own exceptions (404 on an unknown route, ...) already carry a
+    // correct status; honour it and never relabel it. Their *message*, however,
+    // is untrusted: Nest builds it itself from the request line ("Cannot GET
+    // /path?token=..."), or by rewriting a dependency error —
+    // `routes-resolver.mapExternalException` wraps SyntaxError/URIError as
+    // BadRequestException(err.message), discarding the cause and every parser
+    // marker, so the text is caller-controlled request bytes with no way to
+    // detect its origin here. Honour the status, never the message.
+    // (Body-parser's payload-too-large is NOT one of these: it stays a plain
+    // Error carrying a numeric status and is rendered by numericErrorStatus.)
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       if (!Number.isSafeInteger(status) || status < 400 || status > 599) {
@@ -78,7 +86,7 @@ export class ErrorFilter implements ExceptionFilter {
         body: {
           error: {
             code: httpCodeSlug(status),
-            message: status >= 500 ? 'internal error' : exception.message,
+            message: httpPublicMessage(status),
             status,
             requestId,
           },

@@ -282,3 +282,62 @@ describe('plain HTTP-status error rendering', () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('HttpException message is never reflected (R-01)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+  const render = (exception: unknown) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: unknown };
+    }).render(exception, 'r01-request');
+
+  // Nest destroys every origin marker before the filter runs (no cause, no
+  // err.type, no err.body), so the contract cannot be shape-based: NO
+  // HttpException text may escape, whatever produced it.
+  it.each([
+    [400, 'bad_request', 'bad request'],
+    [401, 'unauthorized', 'unauthorized'],
+    [403, 'forbidden', 'forbidden'],
+    [404, 'not_found', 'not found'],
+    [413, 'payload_too_large', 'payload too large'],
+  ])('renders fixed text for a %p HttpException', (status, code, message) => {
+    const rendered = render(new HttpException('SECRET-MARKER-VALUE', status));
+    expect(rendered).toEqual({
+      status,
+      body: { error: { code, message, status, requestId: 'r01-request' } },
+    });
+    expect(JSON.stringify(rendered)).not.toContain('SECRET-MARKER-VALUE');
+  });
+
+  it.each([
+    // Real V8 output: a malformed body echoes up to ~10 contiguous bytes.
+    ['JSON syntax error', `Unexpected token 'h', ..."password":hunter2SEC"... is not valid JSON`],
+    // express@5 decode_param: leaks the whole path segment, unbounded.
+    ['URIError path param', `Failed to decode param '%FFSECRET-PATH-SEGMENT'`],
+    // Nest's own 404: leaks the full request line including the query string.
+    ['unknown route', 'Cannot GET /v1/nope?token=SECRET-IN-QUERY'],
+  ])('does not leak the %s message', (_name, message) => {
+    const serialized = JSON.stringify(render(new HttpException(message, 400)));
+    expect(serialized).not.toContain('SECRET');
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('Cannot GET');
+    expect(serialized).not.toContain('is not valid JSON');
+  });
+
+  it('keeps payload-too-large on the plain numeric-status branch', () => {
+    // 413 was always green because raw-body throws a plain Error, not an
+    // HttpException. Pin it so a later refactor cannot migrate it onto the
+    // branch this finding sanitized.
+    expect(render(Object.assign(new Error('SECRET raw-body text'), { status: 413 }))).toEqual({
+      status: 413,
+      body: {
+        error: {
+          code: 'payload_too_large', message: 'payload too large', status: 413,
+          requestId: 'r01-request',
+        },
+      },
+    });
+  });
+});
