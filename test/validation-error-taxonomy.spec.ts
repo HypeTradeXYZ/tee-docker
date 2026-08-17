@@ -127,6 +127,48 @@ describe('validation error taxonomy', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('does not repair a damaged workspace row down to the live undercount', async () => {
+    // L-13's other half. Neutering this guard left the whole suite green.
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 4,
+          workspaces: [{ slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 4 }],
+        },
+      },
+    };
+    const state = {
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
+    };
+    const registry = {
+      syncWalletCount: jest.fn().mockResolvedValue(undefined),
+      markUnusable: jest.fn(),
+      requireAccount: jest.fn(),
+      recordAccountExposure: jest.fn(),
+    };
+    const service = new AccountsService(registry as never, state as never);
+    const session = {
+      tenantId: 'acme',
+      workspaceSlug: 'desk-a',
+      password: 'workspace-password',
+      handle: {
+        damagedAccountSlugs: ['alpha'],
+        accounts: Object.assign([{ wallets: [{}] }], {
+          create: jest.fn().mockResolvedValue({ slug: 'new-a', hasOwnPassword: false, wallets: [] }),
+        }),
+      },
+    } as never;
+
+    await service.create(session, { id: 'acme', limits: { maxWallets: 10 } } as never, {
+      displayName: 'Valid account name',
+      kind: 'HD',
+    });
+
+    // Live count is 1; repairing the row to it would hand back 3 wallets of
+    // quota that the damaged record still occupies.
+    expect(draft.tenants.acme.workspaces[0]!.walletCount).toBeGreaterThanOrEqual(4);
+  });
+
   it('holds an account password to the same policy as a workspace password', async () => {
     // Otherwise the Cold Vault's only secret could be weaker than the password
     // guarding the workspace around it.

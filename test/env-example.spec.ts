@@ -5,6 +5,11 @@ import { execFileSync } from 'node:child_process';
 import { hashApiSecret } from '../src/auth/secret';
 
 const ROOT = join(__dirname, '..');
+// TEE_-prefixed error codes share the namespace but are not settings.
+const ERROR_CODES = new Set<string>(
+  (readFileSync(join(ROOT, 'src/common/tee-error.ts'), 'utf8').match(/'(TEE_[A-Z0-9_]+)'/g) ?? [])
+    .map((quoted) => quoted.slice(1, -1)),
+);
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -33,9 +38,13 @@ describe('.env.example completeness (L-08)', () => {
       const source = readFileSync(file, 'utf8');
       for (const match of source.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) used.add(match[1]!);
       for (const match of source.matchAll(/env\[['"]([A-Z][A-Z0-9_]+)['"]\]/g)) used.add(match[1]!);
-      // The helper idiom: parse(env, 'NAME', ...) / read(env, "NAME").
-      for (const match of source.matchAll(/\benv\s*,\s*['"`]([A-Z][A-Z0-9_]+)['"`]/g)) {
-        used.add(match[1]!);
+      // Any TEE_/WATIVE_ literal that is not an error code. Both helper idioms
+      // in this codebase pass the name as a string — parse(env, 'NAME') and
+      // parse('NAME', fallback) reading process.env[name] — so matching a call
+      // shape misses one of them, and the manually-maintained list below is
+      // exactly what this test exists to remove.
+      for (const match of source.matchAll(/['"`]((?:TEE|WATIVE)_[A-Z0-9_]+)['"`]/g)) {
+        if (!ERROR_CODES.has(match[1]!)) used.add(match[1]!);
       }
     }
     // NODE_ENV is set by the runtime, not by operator config.
@@ -48,7 +57,9 @@ describe('.env.example completeness (L-08)', () => {
   });
 
   it('catches a setting that is read through a helper, not as env.NAME', () => {
-    // The regression the first version of this test could not see.
+    // Kept as an explicit expectation, but the check above no longer depends
+    // on this list: it scans literals, so a new setting added the way these
+    // were added is caught without editing the test.
     const viaHelper = [
       'TEE_MAX_UNLOCKED_WORKSPACES',
       'TEE_MAX_TOKEN_LEASES_PER_WORKSPACE',
