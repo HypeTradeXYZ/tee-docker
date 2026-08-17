@@ -790,10 +790,25 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
 
     entry.state = 'closing';
-    this.clearAccountTimer(session);
-    this.#sessions.delete(session.sid);
-    session.leases.clear();
-    this.rpcBoundary?.revokeWorkspace(session.tenantId, session.workspaceSlug);
+    // Order is load-bearing and must NOT be changed to lock-first: deleting the
+    // session is the revocation fence withSession re-checks under this very
+    // mutex, so locking before it would admit a request against a locked handle
+    // and leave leases live on a handle whose lock just failed. Guard each step
+    // instead — a book-keeping throw must not cost the lock, and must not be
+    // rethrown, or the aggregate re-enters shutdown and skips state.close().
+    const bookkeep = (what: string, run: () => void): void => {
+      try {
+        run();
+      } catch (err) {
+        this.logger.error(`close bookkeeping ${what} failed for ${session.sid}: ${String(err)}`);
+      }
+    };
+    bookkeep('clearAccountTimer', () => this.clearAccountTimer(session));
+    bookkeep('sessions.delete', () => { this.#sessions.delete(session.sid); });
+    bookkeep('leases.clear', () => session.leases.clear());
+    bookkeep('revokeWorkspace', () => {
+      this.rpcBoundary?.revokeWorkspace(session.tenantId, session.workspaceSlug);
+    });
     await session.mutex.runExclusive(async () => {
       try {
         await session.handle.lock();

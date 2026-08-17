@@ -1144,12 +1144,49 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
         throw new Error('scheduler exploded');
       });
 
-    // A fatal-exit handler cannot let this throw, and the ledger lock must
-    // still be released. See R-14 for the residual: closeEntry runs fallible
-    // book-keeping before handle.lock(), so this failure does cost that lock.
+    // R-14: a throwing book-keeping step must not cost the lock. Before the
+    // guards this returned with handle.lock() never called while still
+    // releasing the state lock — the inverse of what this primitive promises.
     const failures = await registry.lockAllHandlesBestEffort();
     expect(failures.map(String).join()).toContain('scheduler exploded');
+    expect(lock).toHaveBeenCalledTimes(1);
     expect(stateClose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['clearAccountTimer', 'revokeWorkspace'])(
+    'still locks the handle when %s throws during close',
+    async (step) => {
+      const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+      const { registry, stateClose } = fixture(lock);
+      await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+
+      if (step === 'clearAccountTimer') {
+        jest
+          .spyOn(registry as unknown as { clearAccountTimer: () => void }, 'clearAccountTimer')
+          .mockImplementation(() => { throw new Error(`${step} exploded`); });
+      } else {
+        (registry as unknown as { rpcBoundary?: { revokeWorkspace: () => void } }).rpcBoundary = {
+          revokeWorkspace: () => { throw new Error(`${step} exploded`); },
+        };
+      }
+
+      await expect(registry.lockAllHandlesBestEffort()).resolves.toBeDefined();
+      expect(lock).toHaveBeenCalledTimes(1);
+      expect(stateClose).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('keeps the revocation fence ahead of the lock', async () => {
+    // The anti-reorder pin. Lock-first was disproven: it admits a request
+    // against a locked handle, resolves leases, and re-arms an account timer.
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry } = fixture(lock);
+    const grant = await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+
+    await registry.lockAllHandlesBestEffort();
+    expect(
+      registry.get(grant.session.sid, grant.lease.jti, 'acme', 'desk-a', ['read'], 900),
+    ).toBeNull();
   });
 
   it('refuses new work once it has run', async () => {
