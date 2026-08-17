@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { loadEnvFiles } from './config/env';
 import { installRequestIdMiddleware } from './common/request-id.middleware';
+import { takeHeldServiceState } from './config/config.module';
 import { SessionRegistry } from './session/session.registry';
 
 // Held so a failed boot can still release the ledger's process lock: without
@@ -93,8 +94,15 @@ bootstrap().catch(async (err: unknown) => {
   new Logger('bootstrap').fatal(describeFatal(err));
   // A half-started process may already hold the ledger lock. Releasing it is
   // what makes the next start possible; there is no owner left to hold it for.
+  //
+  // `booted` is only set AFTER NestFactory.create resolves, but the lock is
+  // taken by ConfigModule's factory DURING it — so every ordinary boot failure
+  // (a short HMAC key, an invalid limit, an unreadable tenants.json) lands here
+  // with `booted` undefined. Fall back to the state service this process
+  // published, or the lock survives a config typo and blocks the next start.
   try {
-    await booted?.close();
+    if (booted) await booted.close();
+    else await takeHeldServiceState()?.close();
   } catch {
     // Already reported; the exit below is what matters.
   }
