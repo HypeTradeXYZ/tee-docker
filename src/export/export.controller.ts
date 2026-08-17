@@ -1,6 +1,7 @@
 import { Controller, HttpCode, Logger, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { teeCoreError } from '../common/tee-error';
 import { z } from 'zod';
-import { WativeError } from 'wative-core';
+
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { TeeError } from '../common/tee-error';
@@ -69,7 +70,7 @@ export class ExportController {
     const walletId = parseWalletId(id);
     const parsedVm = ExportVm.safeParse(vm);
     if (!parsedVm.success) {
-      throw new WativeError('PARAMETER_ERROR', 'query parameter vm must be evm or svm');
+      throw teeCoreError('PARAMETER_ERROR', 'query parameter vm must be evm or svm');
     }
     const selectedVm = parsedVm.data;
 

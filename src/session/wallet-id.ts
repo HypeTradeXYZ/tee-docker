@@ -1,4 +1,5 @@
-import { WativeError } from 'wative-core';
+import { teeCoreError } from '../common/tee-error';
+
 
 const CANONICAL_WALLET_ID = /^(0|[1-9]\d*)$/;
 
@@ -6,7 +7,7 @@ const CANONICAL_WALLET_ID = /^(0|[1-9]\d*)$/;
 export function parseWalletId(value: string): number {
   const parsed = CANONICAL_WALLET_ID.test(value) ? Number(value) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new WativeError('PARAMETER_ERROR', 'wallet id must be a canonical nonnegative integer');
+    throw teeCoreError('PARAMETER_ERROR', 'wallet id must be a canonical nonnegative integer');
   }
   return parsed;
 }

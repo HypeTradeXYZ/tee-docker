@@ -1,4 +1,5 @@
-import { Account, WativeError, type Workspace } from 'wative-core';
+import { Account, type Workspace } from 'wative-core';
+import { teeCoreError } from '../common/tee-error';
 
 const FIXED_ERROR = 'displayName must normalize to 4–64 characters and produce an account slug';
 
@@ -34,6 +35,6 @@ export async function normalizeAccountDisplayName(value: string): Promise<string
   } catch {
     // Core validation messages can contain the rejected input. The API uses a
     // fixed reviewed error while retaining core's public code and status.
-    throw new WativeError('PARAMETER_ERROR', FIXED_ERROR);
+    throw teeCoreError('PARAMETER_ERROR', FIXED_ERROR);
   }
 }

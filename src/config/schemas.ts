@@ -71,6 +71,15 @@ export const ErrorMappingSchema = z.object({
       message: 'an exposeMessage mapping requires a fixed publicMessage',
     });
   }
+  // The message half of a 5xx is opaque by M-11's rule, so details must be too
+  // — otherwise the same internal state leaves through the other channel.
+  if (mapping.status >= 500 && mapping.exposeDetails === true) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['exposeDetails'],
+      message: 'a 5xx mapping must not expose details',
+    });
+  }
   if (mapping.publicMessage !== undefined && mapping.exposeMessage !== true) {
     ctx.addIssue({
       code: 'custom',

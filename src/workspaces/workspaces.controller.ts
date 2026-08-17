@@ -10,8 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
-import { WativeError } from 'wative-core';
-import { TeeError } from '../common/tee-error';
+
+import { TeeError, teeCoreError } from '../common/tee-error';
 import type { Tenant, WorkspaceState } from '../config/schemas';
 import { CurrentTenant, TenantGuard } from '../auth/tenant.guard';
 import { WorkspacesService } from './workspaces.service';
@@ -66,5 +66,5 @@ export class WorkspacesController {
 function parseForce(value: unknown): boolean {
   if (value === undefined || value === 'false') return false;
   if (value === 'true') return true;
-  throw new WativeError('PARAMETER_ERROR', 'force must be exactly true or false');
+  throw teeCoreError('PARAMETER_ERROR', 'force must be exactly true or false');
 }

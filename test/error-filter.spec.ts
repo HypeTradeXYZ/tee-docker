@@ -5,7 +5,7 @@ import { WativeError } from 'wative-core';
 import { ErrorFilter } from '../src/common/error.filter';
 import { ErrorMapService } from '../src/config/error-map.service';
 import { ErrorsConfigSchema } from '../src/config/schemas';
-import { TeeError } from '../src/common/tee-error';
+import { TeeError, teeCoreError } from '../src/common/tee-error';
 
 describe('reviewed transaction/RPC error rendering', () => {
   const config = ErrorsConfigSchema.parse(
@@ -423,5 +423,32 @@ describe('sub-500 message gate (R-03)', () => {
     const rendered = render(new WativeError('NEW_CODE_IN_2_5_0' as never, POISON));
     expect(rendered.status).toBeGreaterThanOrEqual(500);
     expect(rendered.body.error.message).toBe('internal error');
+  });
+});
+
+describe('tee-docker messages thrown as core errors (R-03 follow-up)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+  const render = (exception: unknown) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: { error: Record<string, unknown> } };
+    }).render(exception, 'r03b-request');
+
+  it('renders a message authored by tee-docker on a core code', () => {
+    // teeCoreError exists so a reviewed message on a core code is not
+    // mistaken for the dependency's own text and suppressed.
+    const rendered = render(teeCoreError('PARAMETER_ERROR', 'force must be exactly true or false'));
+    expect(rendered.body.error).toMatchObject({
+      code: 'invalid_parameter',
+      message: 'force must be exactly true or false',
+      status: 400,
+    });
+  });
+
+  it('still suppresses the same code thrown by the dependency', () => {
+    const rendered = render(new WativeError('PARAMETER_ERROR' as never, '/var/data/root/acme/x'));
+    expect(JSON.stringify(rendered)).not.toContain('/var/data/root');
   });
 });
