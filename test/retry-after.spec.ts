@@ -33,3 +33,30 @@ describe('retryAfterSeconds clamp (L-11)', () => {
     }
   });
 });
+
+describe('creation limiter uses a per-leg ceiling (L-11 follow-up)', () => {
+  it('clamps the rate leg to its own window, not the cooldown ceiling', async () => {
+    const { WorkspaceCreationLimiter } = await import(
+      '../src/workspaces/workspace-creation-limiter'
+    );
+    let now = Date.parse('2026-08-16T12:00:00.000Z');
+    const limiter = new WorkspaceCreationLimiter(
+      { maxPerMinute: 2, recreateCooldownMs: 60_000 },
+      () => now,
+    );
+    limiter.admit('acme', undefined);
+    limiter.admit('acme', undefined);
+
+    // A one-day backwards NTP correction. The rate leg can never legitimately
+    // exceed one window, so the hint must not describe a 24-hour stall.
+    now -= 86_400_000;
+    try {
+      limiter.admit('acme', undefined);
+      throw new Error('expected a rejection');
+    } catch (err) {
+      const e = err as { code?: string; details?: { retryAfterSec?: number } };
+      expect(e.code).toBe('TEE_WORKSPACE_CREATE_RATE');
+      expect(e.details!.retryAfterSec).toBeLessThanOrEqual(60);
+    }
+  });
+});

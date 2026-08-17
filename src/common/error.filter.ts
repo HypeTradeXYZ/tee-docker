@@ -192,10 +192,8 @@ function readStatusField(
   }
 }
 
-// Reviewed map text wins everywhere. A 5xx stays opaque even when tee-docker
-// authored the message, because M-11 reviewed exactly which server errors may
-// speak. Below 500 an authored message is renderable; a dependency's is not.
 const MAX_DETAIL_DEPTH = 5;
+const MAX_DETAIL_ITEMS = 32;
 
 // NaN and Infinity serialize to null, so a client reading a contractually
 // numeric field gets a silent lie. Drop what cannot be represented rather than
@@ -216,7 +214,10 @@ function jsonSafe(value: unknown, depth = 0): unknown {
       return undefined;
   }
   if (Array.isArray(value)) {
-    const out = value.slice(0, 32).map((item) => jsonSafe(item, depth + 1));
+    // Refuse rather than truncate: a silently shortened list is the same class
+    // of lie as a number that serialized to null.
+    if (value.length > MAX_DETAIL_ITEMS) return undefined;
+    const out = value.map((item) => jsonSafe(item, depth + 1));
     return out.some((item) => item === undefined) ? undefined : out;
   }
   const source = value as Record<string, unknown>;
@@ -235,6 +236,9 @@ function jsonSafe(value: unknown, depth = 0): unknown {
   return out;
 }
 
+// Reviewed map text wins everywhere. A 5xx stays opaque even when tee-docker
+// authored the message, because M-11 reviewed exactly which server errors may
+// speak. Below 500 an authored message is renderable; a dependency's is not.
 function publicText(
   mapped: { status: number; exposeMessage?: boolean; publicMessage?: string },
   reviewed: string | undefined,

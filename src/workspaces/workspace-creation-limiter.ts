@@ -95,11 +95,18 @@ export class WorkspaceCreationLimiter {
       : 0;
     const retryAt = Math.max(rateRetryAt, cooldownRetryAt);
     if (retryAt > now) {
-      const code = cooldownRetryAt >= rateRetryAt
+      // Two legs with different natural maxima. The rate leg can never exceed
+      // one window, so it must not inherit the cooldown's one-year ceiling.
+      const cooldownWon = cooldownRetryAt >= rateRetryAt;
+      const code = cooldownWon
         ? 'TEE_WORKSPACE_RECREATE_COOLDOWN'
         : 'TEE_WORKSPACE_CREATE_RATE';
       throw new TeeError(code, 'workspace creation is temporarily unavailable', {
-        retryAfterSec: retryAfterSeconds(retryAt, now, MAX_COOLDOWN_SEC),
+        retryAfterSec: retryAfterSeconds(
+          retryAt,
+          now,
+          cooldownWon ? MAX_COOLDOWN_SEC : WINDOW_MS / 1000,
+        ),
       });
     }
 

@@ -52,7 +52,7 @@ export class AccountUnlockLimiter {
     if (failure && now >= failure.expiresAt) session.unlockFailures.delete(accountSlug);
     else if (failure && now < failure.nextAllowedAt) {
       throw new TeeError('TEE_ACCOUNT_UNLOCK_RATE', 'account unlock temporarily unavailable', {
-        retryAfterSec: retryAfterSeconds(failure.nextAllowedAt, now, RETENTION_MS / 1000),
+        retryAfterSec: retryAfterSeconds(failure.nextAllowedAt, now, MAX_BACKOFF_MS / 1000),
       });
     }
 
