@@ -246,24 +246,19 @@ export class SessionRegistry implements OnApplicationShutdown {
       if (deadline) clearTimeout(deadline);
     }
 
-    // Release the ledger's process lock too, because skipping it converts a
-    // crash with unlocked keys into a service that will not restart.
+    // Release the ledger's process lock. Skipping it converts a crash with
+    // unlocked keys into a service that will not restart.
     //
-    // But ONLY when nothing is still holding a decrypted handle. Releasing
-    // while a handle survives invites a supervisor to start a successor that
-    // opens the same directory while this process is still alive — two
-    // Workspace instances over one workspace, which is the exact class the
-    // lifetime lock exists to prevent and which silently destroys writes.
-    // Retaining it there is C-04's fail-closed trade, and the operator gets a
-    // named workspace to act on rather than corruption.
-    const stillHeld = [...this.#workspaces.values()]
-      .filter((entry) => entry.session ?? entry.provisioningHandle)
-      .map((entry) => entry.workspaceSlug);
-    if (stillHeld.length > 0) {
-      note(new Error(`state lock retained: ${stillHeld.length} workspace(s) still unlocked`));
-      return failures;
-    }
-
+    // Released unconditionally, deliberately. A conditional release was tried
+    // and reverted: retaining the lock whenever a handle was still held made a
+    // stranded lock DETERMINISTIC on a busy service, because the RPC deadline
+    // (15s) exceeds this drain deadline (5s) and closeEntry waits on the same
+    // session mutex a request holds. It bought protection against a successor
+    // starting inside the release-to-exit gap — measured at 0.13-0.37ms, with
+    // this function's only caller exiting in its own `finally`, so no
+    // supervisor can observe it. It also did not establish the invariant it
+    // claimed: create() and provisionWorkspace() hold decrypted handles before
+    // publishing them, so the check saw nothing during exactly those windows.
     try {
       await this.state.close();
     } catch (err) {
@@ -815,7 +810,14 @@ export class SessionRegistry implements OnApplicationShutdown {
       try {
         run();
       } catch (err) {
-        this.logger.error(`close bookkeeping ${what} failed for ${session.sid}: ${String(err)}`);
+        // The catch itself must not throw: a failing logger here would abort
+        // the close before handle.lock(), which is the defect these guards
+        // exist to prevent, moved up one frame.
+        try {
+          this.logger.error(`close bookkeeping ${what} failed for ${session.sid}: ${String(err)}`);
+        } catch {
+          // Nothing left to report with.
+        }
       }
     };
     bookkeep('clearAccountTimer', () => this.clearAccountTimer(session));

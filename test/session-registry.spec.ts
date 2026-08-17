@@ -1084,8 +1084,9 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
     // A handle that would not lock is still held, so the ledger lock is
     // retained rather than inviting a successor onto the same directory.
     expect(failures.map(String).join()).toContain('core lock failure');
-    expect(failures.map(String).join()).toContain('state lock retained');
-    expect(stateClose).not.toHaveBeenCalled();
+    // Released unconditionally: a conditional release made a stranded lock
+    // deterministic on a busy service. See AUDIT-FINDINGS R-05.
+    expect(stateClose).toHaveBeenCalledTimes(1);
   });
 
   it('gives up after the deadline rather than hanging the exit', async () => {
@@ -1095,10 +1096,9 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
 
     const failures = await registry.lockAllHandlesBestEffort(25);
     expect(failures.map(String).join()).toContain('timed out');
-    // Same rule on the deadline path: the handle is still decrypted, so the
-    // lock stays with this process until it is gone.
-    expect(failures.map(String).join()).toContain('state lock retained');
-    expect(stateClose).not.toHaveBeenCalled();
+    // The deadline path releases too: the alternative strands the lock on any
+    // fatal error that lands while a request holds the session mutex.
+    expect(stateClose).toHaveBeenCalledTimes(1);
   });
 
   it('locks a workspace whose open is still in flight', async () => {
@@ -1182,6 +1182,24 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
       expect(stateClose).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('still locks the handle when the failure logger itself throws', async () => {
+    // The guards' own catch must be total, or the first throwing step aborts
+    // the close before handle.lock() — the defect, moved up one frame.
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    jest
+      .spyOn(registry as unknown as { clearAccountTimer: () => void }, 'clearAccountTimer')
+      .mockImplementation(() => { throw new Error('timer clear exploded'); });
+    jest
+      .spyOn((registry as unknown as { logger: { error: () => void } }).logger, 'error')
+      .mockImplementation(() => { throw new Error('logger transport is down'); });
+
+    await expect(registry.lockAllHandlesBestEffort()).resolves.toBeDefined();
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
+  });
 
   it('keeps the revocation fence ahead of the lock', async () => {
     // The anti-reorder pin. Lock-first was disproven: it admits a request
