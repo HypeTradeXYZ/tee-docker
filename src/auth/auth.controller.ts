@@ -17,16 +17,17 @@ import {
 } from './workspace.guard';
 import { SkipWorkspaceMutex } from '../session/workspace-mutex.interceptor';
 
-const TokenBody = z.object({
-  workspace: z.string(),
-  password: z.string().min(1),
-  scopes: z.array(z.string()).min(1).optional(),
-});
-const RefreshBody = z.object({}).strict();
-
 /** Granted by default. `export` must be asked for explicitly — see DESIGN §9. */
 const DEFAULT_SCOPES = ['read', 'write', 'sign'];
 const GRANTABLE_SCOPES = new Set([...DEFAULT_SCOPES, 'export']);
+
+const TokenBody = z.object({
+  workspace: z.string(),
+  password: z.string().min(1),
+  // Bounded so an oversized array cannot buy CPU on the uncharged path.
+  scopes: z.array(z.string().max(32)).min(1).max(GRANTABLE_SCOPES.size).optional(),
+});
+const RefreshBody = z.object({}).strict();
 
 @Controller('auth')
 export class AuthController {

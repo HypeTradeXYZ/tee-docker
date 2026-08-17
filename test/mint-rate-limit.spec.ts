@@ -117,6 +117,32 @@ describe('mint rate limit bounds and window (L-09)', () => {
     expect(() => limiter.check('globex')).not.toThrow();
   });
 
+  it('never retains more timestamps than the limit', () => {
+    // The property the acceptance line demands. Without this, a store that
+    // appends without filtering keeps every decision correct while the bucket
+    // grows forever.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-16T00:00:00.000Z'));
+    const limiter = new MintRateLimiter(3);
+    for (let i = 0; i < 50; i++) {
+      try {
+        limiter.check('acme');
+      } catch {
+        // rejections are expected once the window is full
+      }
+      expect(Math.max(...limiter.bucketSizes)).toBeLessThanOrEqual(3);
+    }
+    jest.setSystemTime(new Date('2026-08-16T00:01:00.001Z'));
+    for (let i = 0; i < 50; i++) {
+      try {
+        limiter.check('acme');
+      } catch {
+        // same in the next window
+      }
+      expect(Math.max(...limiter.bucketSizes)).toBeLessThanOrEqual(3);
+    }
+    expect(limiter.bucketSizes).toHaveLength(1);
+  });
+
   it('no longer exposes a pruner', () => {
     // The map is bounded by the boot-time tenant table, so the sweep it
     // advertised was never wired and never needed.

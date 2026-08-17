@@ -57,6 +57,11 @@ export class MintRateLimiter {
     return this.maxPerWindow;
   }
 
+  /** Retained timestamps per tenant, so the bound can be asserted rather than read. */
+  get bucketSizes(): number[] {
+    return [...this.#hits.values()].map((times) => times.length);
+  }
+
   /** Record an attempt, or throw if the tenant is over its budget. */
   check(tenantId: string): void {
     const now = Date.now();
