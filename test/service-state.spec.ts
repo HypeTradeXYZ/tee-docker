@@ -632,7 +632,7 @@ describe('ServiceStateService durable ledger', () => {
       const metadata = validStaleLock();
       writeFileSync(`${paths.stateFile}.lock`, metadata, { mode: 0o600 });
 
-      expect(() => openState()).toThrow('remove the lock manually');
+      expect(() => openState()).toThrow('never reclaims a lock automatically');
       expect(readFileSync(`${paths.stateFile}.lock`, 'utf8')).toBe(metadata);
       expect(existsSync(paths.stateFile)).toBe(false);
     });
@@ -683,7 +683,7 @@ describe('ServiceStateService durable ledger', () => {
       child.kill('SIGKILL');
       await childExit;
 
-      expect(() => openState()).toThrow('remove the lock manually');
+      expect(() => openState()).toThrow('never reclaims a lock automatically');
       expect(existsSync(`${paths.stateFile}.lock`)).toBe(true);
 
       unlinkSync(`${paths.stateFile}.lock`);

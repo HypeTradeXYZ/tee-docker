@@ -279,7 +279,7 @@ function acquireProcessLock(files: StateFiles, fs: ServiceStateFs): ProcessLock 
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
       assertExistingLock(files.lock, fs);
       throw new Error(
-        'service state is already locked; if the prior process crashed, verify it is stopped and remove the lock manually',
+        `service state is already locked. ${lockRecovery(files.lock)}`,
         { cause: error },
       );
     }
@@ -350,17 +350,40 @@ function assertExistingLock(path: string, fs: ServiceStateFs): void {
     !stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1 ||
     (stats.mode & 0o777) !== 0o600
   ) {
-    throw new Error('existing service state lock is not a private regular file');
+    throw new Error(
+      `existing service state lock is not a private regular file. ${lockRecovery(path)}`,
+    );
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(fs.read(path));
   } catch (error) {
-    throw new Error('existing service state lock metadata is invalid', { cause: error });
+    // A zero-length or truncated lock is what a kill between openExclusive and
+    // fsync leaves behind — the same trigger this guidance exists for — so it
+    // must not read as tampering.
+    throw new Error(
+      `existing service state lock metadata is invalid. ${lockRecovery(path)}`,
+      { cause: error },
+    );
   }
   if (!isLockMetadata(parsed)) {
-    throw new Error('existing service state lock metadata is invalid');
+    throw new Error(`existing service state lock metadata is invalid. ${lockRecovery(path)}`);
   }
+}
+
+/**
+ * Never names the recorded pid, hostname or acquiredAt.
+ *
+ * They are the only data in the file and all three are misleading: a container
+ * id that no longer exists reads to a human as "dead", which reproduces the
+ * pid-liveness inference DESIGN forbids, in the operator's head instead of in
+ * code. Say what to do, not who used to hold it.
+ */
+function lockRecovery(path: string): string {
+  return `Either another instance is using this state directory, or a previous process exited `
+    + `without releasing it. This service never reclaims a lock automatically. After confirming `
+    + `nothing is running against this directory, remove only ${path} and restart. `
+    + `See docs/OPERATIONS.md "Stale state lock".`;
 }
 
 function isLockMetadata(value: unknown): boolean {
