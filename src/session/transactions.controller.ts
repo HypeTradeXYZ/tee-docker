@@ -21,6 +21,15 @@ import { parseNetworkSelector } from './network-selector';
 /** bigint-valued fields arrive as decimal strings — JSON has no bigint. */
 const bigintish = z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]);
 
+const MAX_PROVIDER_TEXT = 200;
+const MAX_SIMULATION_LOGS = 32;
+
+/** Provider-authored text: bounded before it reaches a caller. */
+function boundedProviderText(value: unknown): string {
+  const text = typeof value === 'string' ? value : '';
+  return text.length > MAX_PROVIDER_TEXT ? `${text.slice(0, MAX_PROVIDER_TEXT)}…` : text;
+}
+
 const BuildBody = z.object({
   address: z.string().min(1).max(128),
   // EVM
@@ -88,11 +97,16 @@ export class TransactionsController {
       address.simulateTransaction(tx),
     );
     assertSimulationTransport(sim);
+    // Provider text, not ours: it has carried node hostnames and enclave paths.
+    // Bounded and truncated rather than dropped, because a revert reason is the
+    // whole point of simulating.
     return {
       success: sim.success,
-      ...(sim.error !== undefined ? { error: sim.error } : {}),
+      ...(sim.error !== undefined ? { error: boundedProviderText(sim.error) } : {}),
       ...(sim.gasUsed !== undefined ? { gasUsed: sim.gasUsed.toString() } : {}),
-      ...(sim.logs !== undefined ? { logs: sim.logs } : {}),
+      ...(sim.logs !== undefined
+        ? { logs: sim.logs.slice(0, MAX_SIMULATION_LOGS).map(boundedProviderText) }
+        : {}),
     };
   }
 
@@ -134,6 +148,10 @@ export class TransactionsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ hash: string; found: boolean; status: string }> {
     const selectedNetwork = parseNetworkSelector(network);
+    // Echoed back in the response, so bound it before anything else.
+    if (typeof hash !== 'string' || hash.length === 0 || hash.length > 128) {
+      throw new TeeError('TEE_INVALID_BODY', 'transaction hash must be 1-128 characters');
+    }
 
     // Resolve through the workspace's own table first, so the RPC error can
     // only ever name a slug this workspace defines, never the caller's bytes.

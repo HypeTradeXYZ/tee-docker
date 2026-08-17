@@ -452,3 +452,45 @@ describe('tee-docker messages thrown as core errors (R-03 follow-up)', () => {
     expect(JSON.stringify(rendered)).not.toContain('/var/data/root');
   });
 });
+
+describe('brand cannot arrive by inheritance (R-03 adversary)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+  const render = (exception: unknown) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: { error: Record<string, unknown> } };
+    }).render(exception, 'brand-request');
+
+  const LEAK = 'CANARY_/enclave/secret/path';
+
+  it('rejects a brand inherited via Object.create', () => {
+    const forged = Object.create(new TeeError('TEE_INVALID_BODY', 'legit'));
+    Object.defineProperty(forged, 'message', { value: LEAK, enumerable: true });
+    expect(JSON.stringify(render(forged))).not.toContain('CANARY_');
+  });
+
+  it('rejects a brand inherited via setPrototypeOf', () => {
+    const forged = new TeeError('TEE_INVALID_BODY', LEAK);
+    const donor = new TeeError('TEE_INVALID_BODY', 'legit');
+    Object.setPrototypeOf(forged, donor);
+    // Its own brand is genuine, so prove the inherited path specifically.
+    const hostile = Object.create(donor) as { message: string };
+    hostile.message = LEAK;
+    expect(JSON.stringify(render(hostile))).not.toContain('CANARY_');
+  });
+
+  it('still renders a genuine own-branded error', () => {
+    expect(render(new TeeError('TEE_INVALID_BODY', 'body must be { count }')).body.error.message)
+      .toBe('body must be { count }');
+  });
+
+  it('stays opaque rather than throwing when the target is frozen', () => {
+    // markReviewedMessage must not turn a reviewed 4xx into a 500 if a
+    // dependency ever freezes its error objects.
+    const frozen = Object.freeze(new WativeError('PARAMETER_ERROR' as never, LEAK));
+    expect(() => render(frozen)).not.toThrow();
+    expect(JSON.stringify(render(frozen))).not.toContain('CANARY_');
+  });
+});
