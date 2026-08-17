@@ -5,9 +5,9 @@
 // cannot be derived without that key — provisioning a tenant previously meant
 // reading src/auth/secret.ts and reimplementing this by hand.
 //
-// Usage:
+// Usage — prefer stdin; an argument is visible in `ps` and shell history:
+//   printf %s "$API_SECRET" | TEE_SECRET_HMAC_KEY=<hex> node scripts/hash-secret.mjs
 //   TEE_SECRET_HMAC_KEY=<hex> node scripts/hash-secret.mjs <api-secret>
-//   TEE_SECRET_HMAC_KEY=<hex> node scripts/hash-secret.mjs            # reads stdin
 //
 // Generate a server key with:
 //   node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
@@ -41,8 +41,9 @@ async function main() {
   if (!secret) {
     throw new Error('usage: hash-secret <api-secret>   (or pipe the secret on stdin)');
   }
-  // Only the hash reaches stdout: the secret itself must not land in a shell
-  // history file or a CI log by way of this tool echoing it back.
+  // Only the hash reaches stdout, so this tool never echoes the secret. It
+  // cannot undo an argv-passed secret already being in `ps` and history —
+  // hence the stdin form above.
   process.stdout.write(`${createHmac('sha256', serverKey()).update(secret, 'utf8').digest('hex')}\n`);
 }
 
