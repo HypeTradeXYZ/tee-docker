@@ -15,25 +15,66 @@ function sourceFiles(dir: string): string[] {
 
 describe('.env.example completeness (L-08)', () => {
   const example = readFileSync(join(ROOT, '.env.example'), 'utf8');
-  const documented = new Set(
-    example
-      .split('\n')
-      .map((line) => /^#?\s*([A-Z][A-Z0-9_]+)=/.exec(line.trim())?.[1])
-      .filter((name): name is string => Boolean(name)),
-  );
+  // A definition line, or a commented-out one — NOT a name mentioned inside an
+  // indented usage example, which would otherwise count as "documented".
+  const definitions = example
+    .split('\n')
+    .map((line) => /^#? ?([A-Z][A-Z0-9_]+)=/.exec(line)?.[1])
+    .filter((name): name is string => Boolean(name));
+  const documented = new Set(definitions);
 
   it('documents every environment variable the service reads', () => {
+    // Matching `env.NAME` only was blind to six live settings, because the
+    // codebase's own idiom passes the name to a helper: parse(env, 'NAME', ...).
+    // Any TEE_/WATIVE_ string literal in src/ or scripts/ counts as a read.
     const used = new Set<string>();
-    for (const file of sourceFiles(join(ROOT, 'src'))) {
+    const roots = [join(ROOT, 'src'), join(ROOT, 'scripts')];
+    for (const file of roots.flatMap((dir) => sourceFiles(dir))) {
       const source = readFileSync(file, 'utf8');
       for (const match of source.matchAll(/env\.([A-Z][A-Z0-9_]+)/g)) used.add(match[1]!);
       for (const match of source.matchAll(/env\[['"]([A-Z][A-Z0-9_]+)['"]\]/g)) used.add(match[1]!);
+      // The helper idiom: parse(env, 'NAME', ...) / read(env, "NAME").
+      for (const match of source.matchAll(/\benv\s*,\s*['"`]([A-Z][A-Z0-9_]+)['"`]/g)) {
+        used.add(match[1]!);
+      }
     }
     // NODE_ENV is set by the runtime, not by operator config.
     used.delete('NODE_ENV');
+    // Removed, and documented in .env.example as removed rather than as a knob.
+    used.delete('TEE_SKIP_KDF_CHECK');
 
     const missing = [...used].filter((name) => !documented.has(name)).sort();
     expect(missing).toEqual([]);
+  });
+
+  it('catches a setting that is read through a helper, not as env.NAME', () => {
+    // The regression the first version of this test could not see.
+    const viaHelper = [
+      'TEE_MAX_UNLOCKED_WORKSPACES',
+      'TEE_MAX_TOKEN_LEASES_PER_WORKSPACE',
+      'TEE_RPC_DEADLINE_MS',
+      'TEE_MAX_RPC_OPERATIONS_PER_TENANT',
+      'TEE_WORKSPACE_CREATE_RATE_LIMIT',
+      'TEE_WORKSPACE_RECREATE_COOLDOWN_SEC',
+    ];
+    for (const name of viaHelper) expect(documented.has(name)).toBe(true);
+  });
+
+  it('never documents a variable whose presence breaks boot', () => {
+    // TEE_SKIP_KDF_CHECK throws by design; an operator uncommenting a line
+    // this file offered them is the exact failure L-08 exists to prevent.
+    const active = example
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n');
+    expect(active).not.toContain('TEE_SKIP_KDF_CHECK');
+    const offered = /^#\s*TEE_SKIP_KDF_CHECK=/m.test(example);
+    expect(offered).toBe(false);
+  });
+
+  it('documents each variable exactly once', () => {
+    const duplicated = definitions.filter((name, i) => definitions.indexOf(name) !== i);
+    expect([...new Set(duplicated)]).toEqual([]);
   });
 
   it('names the key whose absence is a hard boot failure', () => {
