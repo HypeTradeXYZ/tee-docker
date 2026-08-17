@@ -246,9 +246,24 @@ export class SessionRegistry implements OnApplicationShutdown {
       if (deadline) clearTimeout(deadline);
     }
 
-    // Release the ledger's process lock too. Skipping it converts a crash with
-    // unlocked keys into a crash with locked keys and a service that will not
-    // restart, which is the worse of the two.
+    // Release the ledger's process lock too, because skipping it converts a
+    // crash with unlocked keys into a service that will not restart.
+    //
+    // But ONLY when nothing is still holding a decrypted handle. Releasing
+    // while a handle survives invites a supervisor to start a successor that
+    // opens the same directory while this process is still alive — two
+    // Workspace instances over one workspace, which is the exact class the
+    // lifetime lock exists to prevent and which silently destroys writes.
+    // Retaining it there is C-04's fail-closed trade, and the operator gets a
+    // named workspace to act on rather than corruption.
+    const stillHeld = [...this.#workspaces.values()]
+      .filter((entry) => entry.session ?? entry.provisioningHandle)
+      .map((entry) => entry.workspaceSlug);
+    if (stillHeld.length > 0) {
+      note(new Error(`state lock retained: ${stillHeld.length} workspace(s) still unlocked`));
+      return failures;
+    }
+
     try {
       await this.state.close();
     } catch (err) {

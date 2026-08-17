@@ -1075,23 +1075,30 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
     const lock = jest.fn<Promise<void>, []>()
       .mockRejectedValueOnce(new Error('core lock failure'))
       .mockResolvedValue(undefined);
-    const { registry } = fixture(lock);
+    const { registry, stateClose } = fixture(lock);
     await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
     await registry.create(tenantFixture(), 'desk-b', 'password', ['read']);
 
     const failures = await registry.lockAllHandlesBestEffort();
-    expect(failures).toHaveLength(1);
     expect(lock).toHaveBeenCalledTimes(2);
+    // A handle that would not lock is still held, so the ledger lock is
+    // retained rather than inviting a successor onto the same directory.
+    expect(failures.map(String).join()).toContain('core lock failure');
+    expect(failures.map(String).join()).toContain('state lock retained');
+    expect(stateClose).not.toHaveBeenCalled();
   });
 
   it('gives up after the deadline rather than hanging the exit', async () => {
     const lock = jest.fn<Promise<void>, []>().mockImplementation(() => new Promise(() => {}));
-    const { registry } = fixture(lock);
+    const { registry, stateClose } = fixture(lock);
     await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
 
     const failures = await registry.lockAllHandlesBestEffort(25);
-    expect(failures).toHaveLength(1);
-    expect(String(failures[0])).toContain('timed out');
+    expect(failures.map(String).join()).toContain('timed out');
+    // Same rule on the deadline path: the handle is still decrypted, so the
+    // lock stays with this process until it is gone.
+    expect(failures.map(String).join()).toContain('state lock retained');
+    expect(stateClose).not.toHaveBeenCalled();
   });
 
   it('locks a workspace whose open is still in flight', async () => {
