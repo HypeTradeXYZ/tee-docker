@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
-import type { Tenant } from '../config/schemas';
+import { SLUG_RE, type Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
 import { SessionRegistry, type Session } from './session.registry';
@@ -25,7 +25,8 @@ const CreateAccount = z.object({
   kind: z.enum(['HD', 'PK']).default('HD'),
   /** Mnemonic for HD (generated when absent), private key for PK. */
   secret: z.string().min(1).optional(),
-  defaultNetwork: z.string().min(1).optional(),
+  // Same grammar as the ?network= selector; it flows straight into core.
+  defaultNetwork: z.string().regex(SLUG_RE).optional(),
 });
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) });
