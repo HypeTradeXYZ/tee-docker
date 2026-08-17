@@ -13,6 +13,7 @@ import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
 import type { Tenant } from '../config/schemas';
 import { parseNetworkSelector } from './network-selector';
+import { damagedAccountSlugs } from './damaged-accounts';
 
 const UnlockBody = z.object({ accountPassword: z.string().min(1) });
 
@@ -53,12 +54,16 @@ export class WorkspaceController {
     workspace: string;
     locked: boolean;
     accounts: number;
+    damagedAccounts: number;
     expiresAt: string;
   } {
     return {
       workspace: session.workspaceSlug,
       locked: session.handle.locked,
       accounts: session.handle.accounts.length,
+      // Surfaced as a count, not slugs: the caller needs to know records are
+      // missing, and a silent short list is how this went unnoticed.
+      damagedAccounts: damagedAccountSlugs(session.handle).length,
       expiresAt: new Date(session.idleExpiresAt).toISOString(),
     };
   }

@@ -5,6 +5,7 @@ import type { Tenant } from '../config/schemas';
 import { ServiceStateService } from '../config/service-state.service';
 import { SessionRegistry, type Session } from './session.registry';
 import { normalizeAccountDisplayName } from './account-display-name';
+import { hasDamagedAccounts } from './damaged-accounts';
 
 export interface CreateAccountInput {
   displayName: string;
@@ -34,9 +35,9 @@ export class AccountsService {
       async () => {
         // Generate sensitive entropy only after persisted quota admission.
         const secret = input.secret ?? newMnemonic();
-        // hasOwnPassword is passed explicitly and always false. The wative-core
-        // default is TRUE, so omitting it would silently give every account its
-        // own password and break the session model. See DESIGN.md §3.
+        // Always passed explicitly: wative-core defaults it to TRUE, so
+        // omitting it would silently give every account its own password and
+        // break the session model. See DESIGN.md §3.
         const account = await session.handle.accounts.create(
           displayName,
           session.password,
@@ -78,7 +79,6 @@ export class AccountsService {
 
   async importPrivateKey(session: Session, tenant: Tenant, slug: string, pk: string): Promise<Wallet> {
     const account = await this.sessions.requireAccount(session, slug);
-
     // vm is inferred from the key since 2.4.2, and a PK wallet now carries an
     // address on both chains.
     return this.mutateWalletIncrease(session, tenant, 1, () => account.importPrivateKey(pk));
@@ -93,6 +93,7 @@ export class AccountsService {
   /** Persist tenant-wide headroom before any wallet-producing core call. */
   private async reserveWallets(session: Session, tenant: Tenant, adding: number): Promise<void> {
     const liveBefore = this.liveWalletCount(session);
+    const damaged = hasDamagedAccounts(session.handle);
     await this.state.mutate((draft) => {
       if (!Object.hasOwn(draft.tenants, tenant.id)) {
         throw new Error(`missing ledger tenant ${tenant.id}`);
@@ -103,7 +104,9 @@ export class AccountsService {
 
       // Repair this singleton's row before admission. Other rows may contain
       // reservations owned by their own workspace mutexes and must be kept.
-      workspace.walletCount = liveBefore;
+      // A damaged account is absent from the live collection, so the repair
+      // would understate the row and hand quota back to nobody.
+      if (!damaged) workspace.walletCount = liveBefore;
       ledgerTenant.walletTotal = ledgerTenant.workspaces.reduce(
         (sum, entry) => sum + entry.walletCount,
         0,

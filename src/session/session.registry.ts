@@ -15,6 +15,7 @@ import { SESSION_CAPACITY, type SessionCapacity } from './session-capacity';
 import { RpcBoundaryService } from './rpc-boundary.service';
 import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 import { WalletTagsService } from './wallet-tags.service';
+import { damagedAccountSlugs } from './damaged-accounts';
 
 export interface TokenLease {
   readonly jti: string;
@@ -703,6 +704,18 @@ export class SessionRegistry implements OnApplicationShutdown {
 
   /** Authoritatively recount one singleton handle and persist its tenant total. */
   async syncWalletCount(session: Session): Promise<void> {
+    // A damaged account is missing from the collection, so this count is an
+    // undercount. Writing it as authoritative would permanently shrink the
+    // tenant's quota; leave the stored value alone until the damage is fixed.
+    const damaged = damagedAccountSlugs(session.handle);
+    if (damaged.length > 0) {
+      this.logger.error(
+        `refusing to reconcile wallet count for ${session.workspaceSlug}: `
+        + `${damaged.length} damaged account(s)`,
+      );
+      return;
+    }
+
     let walletCount = 0;
     for (const account of session.handle.accounts) walletCount += account.wallets.length;
 
