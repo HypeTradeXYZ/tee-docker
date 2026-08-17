@@ -9,6 +9,7 @@ import { SignController } from '../src/session/sign.controller';
 import { TransactionsController } from '../src/session/transactions.controller';
 import { WorkspaceController } from '../src/session/workspace.controller';
 import { WorkspacesController } from '../src/workspaces/workspaces.controller';
+import { parseNetworkSelector } from '../src/session/network-selector';
 
 const SRC = join(__dirname, '../src');
 
@@ -175,5 +176,31 @@ describe('validation error taxonomy', () => {
       'workspaces/workspace-paths.ts',
       'workspaces/workspace-paths.ts',
     ]);
+  });
+});
+
+describe('network selector grammar (L-05)', () => {
+  it.each([
+    ['__proto__', '__proto__'],
+    ['a NUL byte', 'a\u0000b'],
+    ['a path traversal', '../../etc/passwd'],
+    ['a zero-width space', 'a\u200Bb'],
+    ['uppercase', 'Ethereum'],
+    ['a leading dash', '-eth'],
+    ['128 arbitrary bytes', 'x'.repeat(128)],
+    ['an empty value', ''],
+  ])('rejects %s', (_name, value) => {
+    expect(() => parseNetworkSelector(value)).toThrow('network must be one lowercase slug');
+  });
+
+  it.each([undefined, null, 42, ['ethereum', 'solana'], { a: 'b' }])(
+    'rejects the non-string %p',
+    (value) => {
+      expect(() => parseNetworkSelector(value)).toThrow('network must be one lowercase slug');
+    },
+  );
+
+  it.each(['ethereum', 'solana', 'base-sepolia', 'eth2'])('accepts %p', (value) => {
+    expect(parseNetworkSelector(value)).toBe(value);
   });
 });
