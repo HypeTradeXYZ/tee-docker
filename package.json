@@ -1,6 +1,6 @@
 {
   "name": "tee-docker",
-  "version": "0.6.0",
+  "version": "0.9.0",
   "private": true,
   "description": "Multi-tenant REST API service for hyperscale wallet management in Wative",
   "license": "MIT",
