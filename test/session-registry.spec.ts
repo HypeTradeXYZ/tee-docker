@@ -903,6 +903,10 @@ describe('SessionRegistry storage identity and admission ordering', () => {
 });
 
 describe('SessionRegistry shutdown drain classification (R-02)', () => {
+  // Without this, a failing test here leaks its Workspace.open spy and the
+  // collateral lands on the C-04 shutdown test under randomized order.
+  afterEach(() => jest.restoreAllMocks());
+
   function fixture(lock: jest.Mock<Promise<void>, []>) {
     const draft = {
       tenants: {
@@ -999,6 +1003,59 @@ describe('SessionRegistry shutdown drain classification (R-02)', () => {
     open.mockRestore();
   });
 
+  it('releases the state lock when in-flight provisioning is rejected after retaining a handle', async () => {
+    // The provisioning path carried the identical defect: a provision that fails
+    // after retainHandle used to poison shutdown even though cleanup locked.
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose, handle } = fixture(lock);
+    let entered!: () => void;
+    let release!: () => void;
+    const openEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const provisioning = registry.provisionWorkspace(
+      tenantFixture(),
+      'desk-provision',
+      async (retainHandle) => {
+        retainHandle(handle);
+        entered();
+        await gate;
+        throw new Error('seeding failed after the handle was retained');
+      },
+    );
+    await openEntered;
+    const shutdown = registry.onApplicationShutdown();
+    release();
+
+    await expect(provisioning).rejects.toThrow('seeding failed after the handle was retained');
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
+    expect(registry.workspaceCount).toBe(0);
+  });
+
+  it('retains the entry and the state lock when provisioning cleanup genuinely fails to lock', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockRejectedValue(new Error('core lock failure'));
+    const { registry, stateClose, handle } = fixture(lock);
+
+    await expect(
+      registry.provisionWorkspace(tenantFixture(), 'desk-provision', async (retainHandle) => {
+        retainHandle(handle);
+        throw new Error('seeding failed');
+      }),
+    ).rejects.toThrow(/provisioning and core-handle cleanup both failed/);
+
+    await expect(registry.onApplicationShutdown()).rejects.toThrow(
+      'failed to lock 1 workspace session(s)',
+    );
+    expect(registry.workspaceCount).toBe(1);
+    expect(stateClose).not.toHaveBeenCalled();
+  });
+
   it('retains the entry and the state lock when an in-flight open genuinely fails to lock', async () => {
     const lock = jest.fn<Promise<void>, []>().mockRejectedValue(new Error('core lock failure'));
     const { registry, stateClose, handle } = fixture(lock);
@@ -1012,7 +1069,15 @@ describe('SessionRegistry shutdown drain classification (R-02)', () => {
     await expect(creating).rejects.toThrow(/desk-shutdown/);
     // Phase 1 no longer reports it, so the throw-before-delete ordering is the
     // whole safety net: the entry must survive for the phase-2 snapshot.
-    await expect(shutdown).rejects.toThrow('failed to lock 1 workspace session(s)');
+    // Assert the aggregate carries exactly one error. Matching only the count
+    // inside the message would still pass if phase 1 reported it a second time.
+    const aggregate = await shutdown.then(
+      () => undefined,
+      (err: unknown) => err as AggregateError,
+    );
+    expect(aggregate).toBeInstanceOf(AggregateError);
+    expect(aggregate!.errors).toHaveLength(1);
+    expect(aggregate!.message).toBe('failed to lock 1 workspace session(s)');
     expect(registry.workspaceCount).toBe(1);
     expect(stateClose).not.toHaveBeenCalled();
     expect(lock.mock.calls.length).toBeGreaterThanOrEqual(2);
