@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { WativeError } from 'wative-core';
 import { TeeError } from '../common/tee-error';
 import { MintRateLimiter } from './mint-rate-limit';
+import { retryAfterSeconds } from '../common/retry-after';
 
 export const ACCOUNT_UNLOCK_CLOCK = Symbol('ACCOUNT_UNLOCK_CLOCK');
 export type AccountUnlockClock = () => number;
@@ -51,7 +52,7 @@ export class AccountUnlockLimiter {
     if (failure && now >= failure.expiresAt) session.unlockFailures.delete(accountSlug);
     else if (failure && now < failure.nextAllowedAt) {
       throw new TeeError('TEE_ACCOUNT_UNLOCK_RATE', 'account unlock temporarily unavailable', {
-        retryAfterSec: Math.max(1, Math.ceil((failure.nextAllowedAt - now) / 1000)),
+        retryAfterSec: retryAfterSeconds(failure.nextAllowedAt, now, RETENTION_MS / 1000),
       });
     }
 

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
+import { retryAfterSeconds } from '../common/retry-after';
 
 const WINDOW_MS = 60_000;
 const DEFAULT_RATE_LIMIT = 10;
@@ -98,7 +99,7 @@ export class WorkspaceCreationLimiter {
         ? 'TEE_WORKSPACE_RECREATE_COOLDOWN'
         : 'TEE_WORKSPACE_CREATE_RATE';
       throw new TeeError(code, 'workspace creation is temporarily unavailable', {
-        retryAfterSec: Math.max(1, Math.ceil((retryAt - now) / 1_000)),
+        retryAfterSec: retryAfterSeconds(retryAt, now, MAX_COOLDOWN_SEC),
       });
     }
 

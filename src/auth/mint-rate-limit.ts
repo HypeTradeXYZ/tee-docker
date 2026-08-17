@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { retryAfterSeconds } from '../common/retry-after';
 import { TeeError } from '../common/tee-error';
 
 /** Sliding window. Small numbers because each mint costs a real KDF. */
@@ -79,7 +80,7 @@ export class MintRateLimiter {
       throw new TeeError(
         'TEE_UNLOCK_CAPACITY',
         `too many token requests; limit is ${this.maxPerWindow} per minute`,
-        { retryAfterSec: Math.ceil((recent[0]! + WINDOW_MS - now) / 1000) },
+        { retryAfterSec: retryAfterSeconds(recent[0]! + WINDOW_MS, now, WINDOW_MS / 1000) },
       );
     }
 

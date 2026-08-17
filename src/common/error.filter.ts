@@ -44,6 +44,13 @@ export class ErrorFilter implements ExceptionFilter {
     let rendered: { status: number; body: ErrorBody };
     try {
       rendered = this.render(exception, requestId);
+      // Prove the body serializes while still inside the hardened region. The
+      // write below stringifies again outside it, where a BigInt, a cycle or a
+      // throwing getter would escape the filter and leave the request with no
+      // reviewed response at all.
+      if (typeof JSON.stringify(rendered.body) !== 'string') {
+        throw new TypeError('unserializable body');
+      }
     } catch {
       // Exception values are untrusted too: proxies can throw from
       // instanceof, property access, or string conversion. The error boundary
@@ -115,7 +122,8 @@ export class ErrorFilter implements ExceptionFilter {
       // enclave. A future core release adding its own `details` cannot ride
       // this, because an unbranded error never reaches it.
       if (mapped.exposeDetails && reviewed !== undefined && exception.details) {
-        body.error.details = exception.details;
+        const safe = jsonSafe(exception.details);
+        if (safe !== undefined) body.error.details = safe as Record<string, unknown>;
       }
       return { status: mapped.status, body };
     }
@@ -187,6 +195,46 @@ function readStatusField(
 // Reviewed map text wins everywhere. A 5xx stays opaque even when tee-docker
 // authored the message, because M-11 reviewed exactly which server errors may
 // speak. Below 500 an authored message is renderable; a dependency's is not.
+const MAX_DETAIL_DEPTH = 5;
+
+// NaN and Infinity serialize to null, so a client reading a contractually
+// numeric field gets a silent lie. Drop what cannot be represented rather than
+// coercing it, and refuse anything unserializable outright.
+function jsonSafe(value: unknown, depth = 0): unknown {
+  if (depth > MAX_DETAIL_DEPTH) return undefined;
+  if (value === null) return null;
+  switch (typeof value) {
+    case 'string':
+      return value.length > 200 ? undefined : value;
+    case 'boolean':
+      return value;
+    case 'number':
+      return Number.isFinite(value) ? value : undefined;
+    case 'object':
+      break;
+    default:
+      return undefined;
+  }
+  if (Array.isArray(value)) {
+    const out = value.slice(0, 32).map((item) => jsonSafe(item, depth + 1));
+    return out.some((item) => item === undefined) ? undefined : out;
+  }
+  const source = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(source)) {
+    let entry: unknown;
+    try {
+      entry = source[key];
+    } catch {
+      return undefined;
+    }
+    const safe = jsonSafe(entry, depth + 1);
+    if (safe === undefined) return undefined;
+    out[key] = safe;
+  }
+  return out;
+}
+
 function publicText(
   mapped: { status: number; exposeMessage?: boolean; publicMessage?: string },
   reviewed: string | undefined,

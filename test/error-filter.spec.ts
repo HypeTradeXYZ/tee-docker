@@ -494,3 +494,62 @@ describe('brand cannot arrive by inheritance (R-03 adversary)', () => {
     expect(JSON.stringify(render(frozen))).not.toContain('CANARY_');
   });
 });
+
+describe('details never serialize to a lie (L-11)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const filter = new ErrorFilter(new ErrorMapService(config));
+  const render = (exception: unknown) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: { error: Record<string, unknown> } };
+    }).render(exception, 'l11-request');
+
+  // TEE_UNLOCK_CAPACITY is exposeDetails:true and carries retryAfterSec.
+  it.each([Number.NaN, Infinity, -Infinity])('drops a non-finite detail (%p)', (bad) => {
+    const rendered = render(
+      new TeeError('TEE_UNLOCK_CAPACITY', 'too many token requests', { retryAfterSec: bad }),
+    );
+    const serialized = JSON.stringify(rendered);
+    // The old behaviour serialized these to null, which a client reading a
+    // contractually numeric field cannot distinguish from "no value".
+    expect(serialized).not.toContain('null');
+    expect(rendered.body.error.details).toBeUndefined();
+  });
+
+  it('keeps a finite detail', () => {
+    const rendered = render(
+      new TeeError('TEE_UNLOCK_CAPACITY', 'too many token requests', { retryAfterSec: 42 }),
+    );
+    expect(rendered.body.error.details).toEqual({ retryAfterSec: 42 });
+  });
+
+  it.each([
+    ['a bigint', { n: BigInt(1) }],
+    ['a cyclic object', (() => { const o: Record<string, unknown> = {}; o.self = o; return o; })()],
+    ['a throwing getter', Object.defineProperty({}, 'boom', { get() { throw new Error('x'); }, enumerable: true })],
+  ])('renders a serializable response despite %s in details', (_name, details) => {
+    const rendered = render(
+      new TeeError('TEE_UNLOCK_CAPACITY', 'too many token requests', details as Record<string, unknown>),
+    );
+    expect(() => JSON.stringify(rendered)).not.toThrow();
+    expect(rendered.body.error.details).toBeUndefined();
+  });
+
+  it('stays total when the whole body cannot serialize', () => {
+    const json = jest.fn();
+    const statusFn = jest.fn(() => ({ json }));
+    const host = {
+      switchToHttp: () => ({
+        getResponse: () => ({ status: statusFn }),
+        getRequest: () => ({ requestId: 'l11-total' }),
+      }),
+    } as unknown as ArgumentsHost;
+    const hostile = new TeeError('TEE_INVALID_BODY', 'x');
+    Object.defineProperty(hostile, 'code', { get() { throw new Error('boom'); } });
+
+    expect(() => filter.catch(hostile, host)).not.toThrow();
+    expect(statusFn).toHaveBeenCalled();
+    expect(() => JSON.stringify(json.mock.calls[0]![0])).not.toThrow();
+  });
+});
