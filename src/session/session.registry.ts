@@ -145,13 +145,16 @@ export class SessionRegistry implements OnApplicationShutdown {
     // Provision/delete callbacks may be inside a lifecycle gate without a
     // published workspace entry. Drain all admitted jobs before snapshotting
     // handles or releasing the outer state-directory lock.
+    //
+    // Ordering only: these are caller-facing API promises, so a rejection here
+    // is an admission outcome already delivered to its own caller — including
+    // the shutdown gate's own `expired('application is shutting down')`. It is
+    // not evidence that custody failed, and counting it as one retains the
+    // ledger's process lock over a workspace that locked cleanly. A job that
+    // genuinely failed to lock throws before deleting its entry, so it stays in
+    // #workspaces and the phase-2 snapshot below re-reports it.
     while (this.#lifecycleJobs.size > 0) {
-      const jobs = await Promise.allSettled([...this.#lifecycleJobs]);
-      failures.push(
-        ...jobs
-          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-          .map((result) => result.reason),
-      );
+      await Promise.allSettled([...this.#lifecycleJobs]);
     }
     // Acquiring every lifecycle key also waits for opens already in flight.
     const results = await Promise.allSettled(

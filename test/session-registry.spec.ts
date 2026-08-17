@@ -901,3 +901,121 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     await registry.onApplicationShutdown();
   });
 });
+
+describe('SessionRegistry shutdown drain classification (R-02)', () => {
+  function fixture(lock: jest.Mock<Promise<void>, []>) {
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: [
+            { slug: 'desk-shutdown', createdAt: new Date(0).toISOString(), walletCount: 0 },
+          ],
+        },
+      },
+    };
+    const stateClose = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const state = {
+      close: stateClose,
+      tenant: () => draft.tenants.acme,
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-r02-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      testStorage,
+    );
+    return { registry, stateClose, handle: { accounts: [], lock } as unknown as Workspace };
+  }
+
+  /** Park inside Workspace.open so shutdown observes a genuinely in-flight job. */
+  function barrier(handle: Workspace) {
+    let entered!: () => void;
+    let release!: () => void;
+    const openEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const open = jest.spyOn(Workspace, 'open').mockImplementation(async () => {
+      entered();
+      await gate;
+      return handle;
+    });
+    return { openEntered, release, open };
+  }
+
+  it('releases the state lock when an in-flight open is correctly rejected at shutdown', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose, handle } = fixture(lock);
+    const { openEntered, release, open } = barrier(handle);
+
+    const creating = registry.create(tenantFixture(), 'desk-shutdown', 'password', ['read']);
+    await openEntered;
+    const shutdown = registry.onApplicationShutdown();
+    release();
+
+    // The registry's own shutdown gate rejects the caller. That is an admission
+    // outcome, not a custody failure, so shutdown must still drain cleanly.
+    await expect(creating).rejects.toMatchObject({ code: 'TEE_SESSION_EXPIRED' });
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
+    expect(registry.workspaceCount).toBe(0);
+    open.mockRestore();
+  });
+
+  it('releases the state lock when an in-flight open fails for a non-shutdown reason', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose } = fixture(lock);
+    let entered!: () => void;
+    let release!: () => void;
+    const openEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const open = jest.spyOn(Workspace, 'open').mockImplementation(async () => {
+      entered();
+      await gate;
+      throw new Error('core refused the open');
+    });
+
+    const creating = registry.create(tenantFixture(), 'desk-shutdown', 'password', ['read']);
+    await openEntered;
+    const shutdown = registry.onApplicationShutdown();
+    release();
+
+    // No handle was ever produced, so there is no custody to fail. A generalized
+    // fix must cover this, not just the shutdown gate's own error code.
+    await expect(creating).rejects.toThrow('core refused the open');
+    await expect(shutdown).resolves.toBeUndefined();
+    expect(lock).not.toHaveBeenCalled();
+    expect(stateClose).toHaveBeenCalledTimes(1);
+    expect(registry.workspaceCount).toBe(0);
+    open.mockRestore();
+  });
+
+  it('retains the entry and the state lock when an in-flight open genuinely fails to lock', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockRejectedValue(new Error('core lock failure'));
+    const { registry, stateClose, handle } = fixture(lock);
+    const { openEntered, release, open } = barrier(handle);
+
+    const creating = registry.create(tenantFixture(), 'desk-shutdown', 'password', ['read']);
+    await openEntered;
+    const shutdown = registry.onApplicationShutdown();
+    release();
+
+    await expect(creating).rejects.toThrow(/desk-shutdown/);
+    // Phase 1 no longer reports it, so the throw-before-delete ordering is the
+    // whole safety net: the entry must survive for the phase-2 snapshot.
+    await expect(shutdown).rejects.toThrow('failed to lock 1 workspace session(s)');
+    expect(registry.workspaceCount).toBe(1);
+    expect(stateClose).not.toHaveBeenCalled();
+    expect(lock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    open.mockRestore();
+  });
+});
