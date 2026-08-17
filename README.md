@@ -201,6 +201,3 @@ pnpm verify      # run all project checks
 ```
 
 For most integrations, the workflow and API summary above are enough to get started.
-
-Running it in production — including what to do when startup reports the state
-directory is already locked — is covered in [docs/OPERATIONS.md](docs/OPERATIONS.md).

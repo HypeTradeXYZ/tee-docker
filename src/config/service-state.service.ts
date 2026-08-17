@@ -383,7 +383,7 @@ function lockRecovery(path: string): string {
   return `Either another instance is using this state directory, or a previous process exited `
     + `without releasing it. This service never reclaims a lock automatically. After confirming `
     + `nothing is running against this directory, remove only ${path} and restart. `
-    + `See docs/OPERATIONS.md "Stale state lock".`;
+    + `Never remove it while an instance may still be running.`;
 }
 
 function isLockMetadata(value: unknown): boolean {

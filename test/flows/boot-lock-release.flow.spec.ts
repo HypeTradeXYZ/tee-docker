@@ -20,6 +20,12 @@ describe('failed boot releases the state lock (R-05)', () => {
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
   });
 
+  it('runs against a built dist, so the assertions cannot pass vacuously', () => {
+    // `pnpm test` does not build. Without this, a missing dist/main.js makes
+    // every case below pass for the wrong reason.
+    expect(existsSync(join(ROOT, 'dist/main.js'))).toBe(true);
+  });
+
   function bootWith(env: Record<string, string>): { code: number; stateDir: string } {
     const base = mkdtempSync(join(tmpdir(), 'tee-boot-lock-'));
     dirs.push(base);

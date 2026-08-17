@@ -61,7 +61,10 @@ describe('state lock refusal is actionable (R-05)', () => {
     }
     expect(message).toContain(lock);
     expect(message).toContain('never reclaims a lock automatically');
-    expect(message).toContain('docs/OPERATIONS.md');
+    // Deliberately no runbook pointer: docs/ is gitignored and ships with
+    // nothing, so the message has to stand on its own.
+    expect(message).toContain('Never remove it while an instance may still be running');
+    expect(message).not.toContain('docs/');
   });
 
   it('never reports the recorded pid, hostname or timestamp', () => {
