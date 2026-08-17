@@ -127,6 +127,21 @@ describe('validation error taxonomy', () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it('holds an account password to the same policy as a workspace password', async () => {
+    // Otherwise the Cold Vault's only secret could be weaker than the password
+    // guarding the workspace around it.
+    const mutate = jest.fn();
+    const service = new AccountsService({} as never, { mutate } as never);
+
+    await expect(service.create(session, tenant, {
+      displayName: 'Valid account name',
+      kind: 'HD',
+      hasOwnPassword: true,
+      accountPassword: 'a',
+    })).rejects.toMatchObject({ code: 'WEAK_PASSWORD' });
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
   it('classifies unsupported scopes and VM kind without reflecting caller values', async () => {
     const check = jest.fn();
     const create = jest.fn();

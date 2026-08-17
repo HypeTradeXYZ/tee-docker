@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { newMnemonic, type Account, type Wallet } from 'wative-core';
+import { newMnemonic, PasswordPolicy, type Account, type Wallet } from 'wative-core';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { ServiceStateService } from '../config/service-state.service';
 import { SessionRegistry, type Session } from './session.registry';
 import { normalizeAccountDisplayName } from './account-display-name';
 import { hasDamagedAccounts } from './damaged-accounts';
+
+const ACCOUNT_PASSWORD_POLICY = new PasswordPolicy();
 
 export interface CreateAccountInput {
   displayName: string;
@@ -35,6 +37,12 @@ export class AccountsService {
     // would be "separately locked" by the very secret that opened the session.
     if (input.hasOwnPassword === true && !input.accountPassword) {
       throw new TeeError('TEE_INVALID_BODY', 'hasOwnPassword requires accountPassword');
+    }
+    // The same policy the workspace tier enforces. Without it the Cold Vault's
+    // only secret could be one character, while the password guarding the
+    // workspace around it could not.
+    if (input.accountPassword !== undefined) {
+      ACCOUNT_PASSWORD_POLICY.enforce(input.accountPassword);
     }
     if (input.hasOwnPassword !== true && input.accountPassword !== undefined) {
       throw new TeeError('TEE_INVALID_BODY', 'accountPassword requires hasOwnPassword');
