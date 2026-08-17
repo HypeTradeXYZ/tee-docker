@@ -22,7 +22,7 @@ import { parseNetworkSelector } from './network-selector';
 const bigintish = z.union([z.string().regex(/^\d+$/), z.number().int().nonnegative()]);
 
 const BuildBody = z.object({
-  address: z.string().min(1),
+  address: z.string().min(1).max(128),
   // EVM
   to: z.string().min(1).optional(),
   value: bigintish.optional(),
@@ -135,11 +135,17 @@ export class TransactionsController {
   ): Promise<{ hash: string; found: boolean; status: string }> {
     const selectedNetwork = parseNetworkSelector(network);
 
-    const rpc = requireRpc(session, tenant, selectedNetwork, this.rpcBoundary);
+    // Resolve through the workspace's own table first, so the RPC error can
+    // only ever name a slug this workspace defines, never the caller's bytes.
+    const net = session.handle.networks.bySlug(selectedNetwork as never);
+    if (!net) {
+      throw new TeeError('TEE_ACCOUNT_NOT_FOUND', 'network not found');
+    }
+
+    const rpc = requireRpc(session, tenant, String(net.slug), this.rpcBoundary);
     res.setHeader('x-rpc-source', rpc.source);
 
-    const net = session.handle.networks.bySlug(selectedNetwork as never);
-    const isEvm = net?.vm === 'evm';
+    const isEvm = net.vm === 'evm';
 
     const payload = isEvm
       ? { jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [hash] }

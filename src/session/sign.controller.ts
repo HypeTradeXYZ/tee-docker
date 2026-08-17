@@ -7,13 +7,13 @@ import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { SessionRegistry, type Session } from './session.registry';
 
 const SignMessage = z.object({
-  address: z.string().min(1),
+  address: z.string().min(1).max(128),
   message: z.string(),
   encoding: z.enum(['personal_sign', 'raw', 'ed25519']).optional(),
 });
 
 const SignTypedData = z.object({
-  address: z.string().min(1),
+  address: z.string().min(1).max(128),
   typedData: z.unknown(),
   chainId: z.number().int().positive().optional(),
 });

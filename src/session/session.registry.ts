@@ -169,7 +169,6 @@ export class SessionRegistry implements OnApplicationShutdown {
     await this.state.close();
   }
 
-  /** Authenticate, open/reuse the singleton, and create one independently revocable token lease. */
   // Deliberately wider than create()'s authoritative check, so it can never
   // turn a would-be success into a free 404. Charge/404 gate only.
   knowsWorkspace(tenantId: string, workspaceSlug: string): boolean {
@@ -177,6 +176,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     return this.state.tenant(tenantId).workspaces.some((w) => w.slug === workspaceSlug);
   }
 
+  /** Authenticate, open/reuse the singleton, and create one independently revocable token lease. */
   async create(
     tenant: Tenant,
     workspaceSlug: string,

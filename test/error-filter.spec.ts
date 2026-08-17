@@ -14,7 +14,9 @@ describe('reviewed transaction/RPC error rendering', () => {
   const filter = new ErrorFilter(new ErrorMapService(config));
 
   it.each([
-    ['TX_ABORTED', 409, 'tx_aborted', 'caller-visible abort'],
+    // R-03: a core-thrown message is never rendered. The CODE is the contract;
+    // the text falls back to fixed status wording.
+    ['TX_ABORTED', 409, 'tx_aborted', 'request failed'],
     ['RPC_REJECTED', 502, 'rpc_rejected', 'the RPC endpoint rejected the request'],
   ] as const)('renders %s intentionally', (coreCode, status, publicCode, message) => {
     const json = jest.fn();
@@ -339,5 +341,87 @@ describe('HttpException message is never reflected (R-01)', () => {
         },
       },
     });
+  });
+});
+
+describe('sub-500 message gate (R-03)', () => {
+  const config = ErrorsConfigSchema.parse(
+    JSON.parse(readFileSync(resolve(__dirname, '../config/errors.json'), 'utf8')),
+  );
+  const errors = new ErrorMapService(config);
+  const filter = new ErrorFilter(errors);
+  const render = (exception: unknown) =>
+    (filter as unknown as {
+      render: (e: unknown, id: string) => { status: number; body: { error: Record<string, unknown> } };
+    }).render(exception, 'r03-request');
+
+  const POISON = '/var/data/root/acme/ws-1 ' + 'A'.repeat(4096);
+  const subFiveHundred = Object.entries(config.mappings)
+    .filter(([, m]) => (m as { status: number }).status < 500)
+    .map(([code]) => code);
+
+  it('has sub-500 mappings to check', () => {
+    expect(subFiveHundred.length).toBeGreaterThan(20);
+  });
+
+  it.each(subFiveHundred)('never renders a dependency message for %s', (code) => {
+    const rendered = render(new WativeError(code as never, POISON));
+    const serialized = JSON.stringify(rendered);
+    expect(serialized).not.toContain('/var/data/root');
+    expect(serialized).not.toContain('AAAA');
+    expect(typeof rendered.body.error.message).toBe('string');
+    expect((rendered.body.error.message as string).length).toBeLessThanOrEqual(200);
+  });
+
+  it.each(subFiveHundred)('never forwards a dependency details object for %s', (code) => {
+    const exception = new WativeError(code as never, 'x');
+    Object.defineProperty(exception, 'details', {
+      value: { path: '/var/data/root/acme', secret: 'oops' },
+      enumerable: true,
+    });
+    const serialized = JSON.stringify(render(exception));
+    expect(serialized).not.toContain('/var/data/root');
+    expect(serialized).not.toContain('oops');
+  });
+
+  it('still renders a message tee-docker authored', () => {
+    const rendered = render(new TeeError('TEE_INVALID_BODY', 'body must be { count }'));
+    expect(rendered.body.error).toMatchObject({
+      code: 'invalid_body',
+      message: 'body must be { count }',
+      status: 400,
+    });
+  });
+
+  it('does not trust the TEE_ prefix, only the brand', () => {
+    // Nothing stops a dependency constructing a TEE_ code at runtime.
+    const forged = new WativeError('TEE_INVALID_SLUG' as never, 'core says: /var/data/root/acme/x');
+    const serialized = JSON.stringify(render(forged));
+    expect(serialized).not.toContain('/var/data/root');
+  });
+
+  it('cannot be fooled by a plain property posing as the brand', () => {
+    const forged = Object.assign(
+      new WativeError('PARAMETER_ERROR' as never, 'core says: /var/data/root/acme/x'),
+      { reviewedMessage: true, __reviewed: true },
+    );
+    expect(JSON.stringify(render(forged))).not.toContain('/var/data/root');
+  });
+
+  it('fails closed on an authored message that is too long', () => {
+    const rendered = render(new TeeError('TEE_INVALID_BODY', 'B'.repeat(201)));
+    expect(rendered.body.error.message).toBe('bad request');
+  });
+
+  it('fails closed when message is not a string', () => {
+    const exception = new TeeError('TEE_INVALID_BODY', 'placeholder');
+    Object.defineProperty(exception, 'message', { value: { leak: '/var/data/root' } });
+    expect(JSON.stringify(render(exception))).not.toContain('/var/data/root');
+  });
+
+  it('keeps a new unmapped core code opaque', () => {
+    const rendered = render(new WativeError('NEW_CODE_IN_2_5_0' as never, POISON));
+    expect(rendered.status).toBeGreaterThanOrEqual(500);
+    expect(rendered.body.error.message).toBe('internal error');
   });
 });

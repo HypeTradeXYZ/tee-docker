@@ -61,11 +61,14 @@ export const ErrorMappingSchema = z.object({
   /** Reviewed fixed text; never a provider/dependency exception message. */
   publicMessage: z.string().min(1).max(200).optional(),
 }).strict().superRefine((mapping, ctx) => {
-  if (mapping.status >= 500 && mapping.exposeMessage === true && !mapping.publicMessage) {
+  // Every status, not just 5xx: the filter renders publicMessage whenever
+  // exposeMessage is set, so a mapping without one would fall through to a
+  // dependency's message at 4xx exactly as it used to at 5xx.
+  if (mapping.exposeMessage === true && !mapping.publicMessage) {
     ctx.addIssue({
       code: 'custom',
       path: ['publicMessage'],
-      message: 'a 5xx exposeMessage mapping requires a fixed publicMessage',
+      message: 'an exposeMessage mapping requires a fixed publicMessage',
     });
   }
   if (mapping.publicMessage !== undefined && mapping.exposeMessage !== true) {

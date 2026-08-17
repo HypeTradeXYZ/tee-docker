@@ -9,6 +9,7 @@ import type { Response } from 'express';
 import type { AppRequest } from './http';
 import { WativeError } from 'wative-core';
 import { ErrorMapService } from '../config/error-map.service';
+import { reviewedMessageOrUndefined } from './reviewed-message';
 import { TeeError } from './tee-error';
 
 interface ErrorBody {
@@ -96,23 +97,24 @@ export class ErrorFilter implements ExceptionFilter {
 
     if (exception instanceof WativeError || exception instanceof TeeError) {
       const mapped = this.errors.resolve(exception.code);
+      // One rule at every status. A dependency's message is never rendered:
+      // it can name enclave paths, and a reworded string under an existing
+      // code is undetectable. Only reviewed map text or a message tee-docker
+      // authored and branded is eligible, and unbranded fails closed.
+      const reviewed = reviewedMessageOrUndefined(exception);
       const body: ErrorBody = {
         error: {
           code: mapped.code,
-          // Raw 5xx messages may carry internal state. Only fixed reviewed text
-          // from the error map is eligible for a server-error response.
-          message: mapped.status >= 500
-            ? mapped.exposeMessage && mapped.publicMessage
-              ? mapped.publicMessage
-              : 'internal error'
-            : exception.message,
+          message: publicText(mapped, reviewed),
           status: mapped.status,
           requestId,
         },
       };
-      // `details` is opt-in per mapping — it is an arbitrary object and
-      // forwarding it blindly is how paths and internal state leave the enclave.
-      if (mapped.exposeDetails && exception.details) {
+      // `details` is opt-in per mapping AND per author — it is an arbitrary
+      // object and forwarding it blindly is how internal state leaves the
+      // enclave. A future core release adding its own `details` cannot ride
+      // this, because an unbranded error never reaches it.
+      if (mapped.exposeDetails && reviewed !== undefined && exception.details) {
         body.error.details = exception.details;
       }
       return { status: mapped.status, body };
@@ -180,6 +182,18 @@ function readStatusField(
   } catch {
     return { present: true, valid: false };
   }
+}
+
+// Reviewed map text wins everywhere. A 5xx stays opaque even when tee-docker
+// authored the message, because M-11 reviewed exactly which server errors may
+// speak. Below 500 an authored message is renderable; a dependency's is not.
+function publicText(
+  mapped: { status: number; exposeMessage?: boolean; publicMessage?: string },
+  reviewed: string | undefined,
+): string {
+  if (mapped.exposeMessage && mapped.publicMessage) return mapped.publicMessage;
+  if (mapped.status >= 500) return 'internal error';
+  return reviewed ?? httpPublicMessage(mapped.status);
 }
 
 function httpPublicMessage(status: number): string {

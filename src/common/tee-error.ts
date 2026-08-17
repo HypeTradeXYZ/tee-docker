@@ -1,6 +1,11 @@
+import { WativeError } from 'wative-core';
+import { markReviewedMessage } from './reviewed-message';
+
 /**
- * tee-docker's own error codes. Deliberately namespaced `TEE_` so they share
- * one lookup table with wative-core's codes without any chance of collision.
+ * tee-docker's own error codes, namespaced `TEE_` so they share one lookup
+ * table with wative-core's codes. The prefix is a TYPE-level convention only:
+ * nothing stops a dependency constructing a WativeError with a TEE_ code at
+ * runtime, so never treat the prefix as proof of authorship.
  *
  * Every code here MUST have an entry in config/errors.json. The filter degrades
  * gracefully on a miss, but a miss is still a bug — `errors.spec.ts` asserts
@@ -45,5 +50,21 @@ export class TeeError extends Error {
     this.name = 'TeeError';
     this.code = code;
     if (details !== undefined) this.details = details;
+    markReviewedMessage(this);
   }
+}
+
+// A wative-core code carrying a message tee-docker wrote. The code namespace is
+// shared, so a core-thrown TEE_* error is possible; only the brand is authority.
+export function teeCoreError(
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+): WativeError {
+  const error = new WativeError(code as ConstructorParameters<typeof WativeError>[0], message);
+  if (details !== undefined) {
+    Object.defineProperty(error, 'details', { value: details, enumerable: true });
+  }
+  markReviewedMessage(error);
+  return error;
 }

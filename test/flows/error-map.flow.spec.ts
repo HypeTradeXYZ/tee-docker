@@ -98,7 +98,7 @@ describe('error-map', () => {
           },
         },
       }),
-    ).toThrow('a 5xx exposeMessage mapping requires a fixed publicMessage');
+    ).toThrow('an exposeMessage mapping requires a fixed publicMessage');
   });
 
   it('degrades an unknown code to the default status instead of throwing', () => {
