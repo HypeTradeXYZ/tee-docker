@@ -185,6 +185,9 @@ describe('wallet ledger serialization', () => {
     const staleAccount = {
       locked: false,
       hasOwnPassword: false,
+      // L-06 rejects an import addressed to an HD account before quota work,
+      // so this fixture must be a real PK account to reach core at all.
+      organizationType: 'PK',
       wallets: staleWallets,
       importPrivateKey: jest
         .fn()
@@ -205,6 +208,7 @@ describe('wallet ledger serialization', () => {
     const reopenedAccount = {
       locked: false,
       hasOwnPassword: false,
+      organizationType: 'PK',
       wallets: reopenedWallets,
       importPrivateKey: jest.fn(async () => {
         const wallet = {};
@@ -482,7 +486,9 @@ describe('wallet ledger serialization', () => {
       const firstAccount = {
         locked: false,
         hasOwnPassword: false,
-        organizationType: 'HD',
+        // Match the operation under test: L-06 rejects a derive on PK and an
+        // import on HD before either reaches core.
+        organizationType: kind === 'derive' ? 'HD' : 'PK',
         wallets: staleWallets,
         deriveWallets: jest.fn().mockRejectedValue(new Error('commit-then-throw probe')),
         importPrivateKey: jest.fn().mockRejectedValue(new Error('commit-then-throw probe')),
