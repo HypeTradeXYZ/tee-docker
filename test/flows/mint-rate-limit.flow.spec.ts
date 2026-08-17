@@ -76,6 +76,86 @@ describe('mint-rate-limit-flow', () => {
     }
   });
 
+  describe('what the budget is charged for (L-10)', () => {
+    async function bootWithWorkspace(limit: string): Promise<Harness> {
+      const h = await boot({ env: { TEE_MINT_RATE_LIMIT: limit } });
+      await request(h.app.getHttpServer())
+        .post('/v1/workspaces')
+        .set(authHeaders())
+        .send({ slug: 'desk-a', password: WS_PASSWORD })
+        .expect(201);
+      return h;
+    }
+
+    const uncharged: [string, Record<string, unknown>, number][] = [
+      ['a malformed body', { nope: 1 }, 400],
+      ['a malformed slug', { workspace: 'BAD SLUG', password: 'pw' }, 400],
+      ['an unknown scope', { workspace: 'desk-a', password: 'pw', scopes: ['fly'] }, 400],
+      ['an unknown workspace', { workspace: 'no-such-desk', password: 'pw' }, 404],
+    ];
+
+    it.each(uncharged)('does not spend the budget on %s', async (_name, body, status) => {
+      const h = await bootWithWorkspace('2');
+      try {
+        for (let i = 0; i < 6; i++) {
+          const res = await request(h.app.getHttpServer())
+            .post('/v1/auth/token')
+            .set(authHeaders())
+            .send(body);
+          expect(res.status).toBe(status);
+          expect(res.body.error.code).not.toBe('mint_rate_limited');
+        }
+        // Budget untouched, so a real mint still succeeds.
+        await request(h.app.getHttpServer())
+          .post('/v1/auth/token')
+          .set(authHeaders())
+          .send({ workspace: 'desk-a', password: WS_PASSWORD })
+          .expect(201);
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('still charges a wrong password once the session is warm', async () => {
+      const h = await bootWithWorkspace('2');
+      try {
+        const mintWith = (password: string) =>
+          request(h.app.getHttpServer())
+            .post('/v1/auth/token')
+            .set(authHeaders())
+            .send({ workspace: 'desk-a', password });
+        // Warm the singleton so the reuse path pays no KDF. It is the only
+        // throttle on an online workspace-password guess.
+        await mintWith(WS_PASSWORD).expect(201);
+        await mintWith('Wrong-Passw0rd!x').expect(401);
+        const third = await mintWith('Wrong-Passw0rd!x');
+        expect(third.status).toBe(429);
+        expect(third.body.error.code).toBe('mint_rate_limited');
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('leaves the budget intact for account unlock after malformed mints', async () => {
+      const h = await bootWithWorkspace('3');
+      try {
+        for (let i = 0; i < 6; i++) {
+          await request(h.app.getHttpServer())
+            .post('/v1/auth/token')
+            .set(authHeaders())
+            .send({ workspace: 'BAD SLUG', password: 'pw' });
+        }
+        await request(h.app.getHttpServer())
+          .post('/v1/auth/token')
+          .set(authHeaders())
+          .send({ workspace: 'desk-a', password: WS_PASSWORD })
+          .expect(201);
+      } finally {
+        await h.close();
+      }
+    });
+  });
+
   it('boots at the maximum limit', async () => {
     const capped = await boot({ env: { TEE_MINT_RATE_LIMIT: '10000' } });
     try {

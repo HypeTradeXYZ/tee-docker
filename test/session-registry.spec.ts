@@ -902,6 +902,53 @@ describe('SessionRegistry storage identity and admission ordering', () => {
   });
 });
 
+describe('SessionRegistry.knowsWorkspace (L-10)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  function build() {
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: [
+            { slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 },
+          ],
+        },
+      },
+    };
+    const state = {
+      close: async () => undefined,
+      tenant: () => draft.tenants.acme,
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
+    } as unknown as ServiceStateService;
+    return new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-knows-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 2 },
+      testStorage,
+    );
+  }
+
+  it('reports ledger rows and unknown slugs without touching core', () => {
+    const open = jest.spyOn(Workspace, 'open');
+    const registry = build();
+    expect(registry.knowsWorkspace('acme', 'desk-a')).toBe(true);
+    expect(registry.knowsWorkspace('acme', 'no-such-desk')).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('reports a live entry as known', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    jest.spyOn(Workspace, 'open').mockResolvedValue(
+      { accounts: [], lock } as unknown as Workspace,
+    );
+    const registry = build();
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+    expect(registry.knowsWorkspace('acme', 'desk-a')).toBe(true);
+    await registry.onApplicationShutdown();
+  });
+});
+
 describe('SessionRegistry shutdown drain classification (R-02)', () => {
   // Without this, a failing test here leaks its Workspace.open spy and the
   // collateral lands on the C-04 shutdown test under randomized order.

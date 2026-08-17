@@ -55,11 +55,16 @@ export class AuthController {
       throw new TeeError('TEE_INVALID_BODY', 'body must be { workspace, password, scopes? }');
     }
 
-    // Before the KDF, not after — the whole point is to not spend it.
-    this.rateLimit.check(tenant.id);
-
     const workspace = assertValidSlug(parsed.data.workspace);
     const scopes = resolveScopes(parsed.data.scopes, tenant);
+    if (!this.sessions.knowsWorkspace(tenant.id, workspace)) {
+      throw new TeeError('TEE_WORKSPACE_NOT_FOUND', `workspace "${workspace}" not found`);
+    }
+
+    // Charge once the request is well formed and names a known workspace, and
+    // still before create(), so every password comparison is charged even on
+    // the warm path that pays no KDF.
+    this.rateLimit.check(tenant.id);
 
     const grant = await this.sessions.create(tenant, workspace, parsed.data.password, scopes);
     let signed: { token: string; exp: number };

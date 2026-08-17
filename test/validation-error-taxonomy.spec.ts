@@ -78,7 +78,12 @@ describe('validation error taxonomy', () => {
   it('classifies unsupported scopes and VM kind without reflecting caller values', async () => {
     const check = jest.fn();
     const create = jest.fn();
-    const auth = new AuthController({ create } as never, forbidden as never, { check } as never);
+    const knowsWorkspace = jest.fn().mockReturnValue(true);
+    const auth = new AuthController(
+      { create, knowsWorkspace } as never,
+      forbidden as never,
+      { check } as never,
+    );
     await expect(auth.token({ id: 'acme' } as never, {
       workspace: 'desk-a',
       password: 'password',
@@ -87,7 +92,9 @@ describe('validation error taxonomy', () => {
       code: 'TEE_INVALID_BODY',
       message: 'requested scopes are not supported',
     });
-    expect(check).toHaveBeenCalledWith('acme');
+    // L-10: an unsupported scope is pure validation, so it must not spend the
+    // tenant's mint budget, which is shared with account unlock.
+    expect(check).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
 
     const address = {
