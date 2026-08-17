@@ -27,6 +27,10 @@ const CreateAccount = z.object({
   secret: z.string().min(1).optional(),
   // Same grammar as the ?network= selector; it flows straight into core.
   defaultNetwork: z.string().regex(SLUG_RE).optional(),
+  /** DESIGN §3's Cold Vault tier: the account locks separately from the session. */
+  hasOwnPassword: z.boolean().optional(),
+  /** Required when hasOwnPassword is set; otherwise the flag grants nothing. */
+  accountPassword: z.string().min(1).max(256).optional(),
 });
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) });

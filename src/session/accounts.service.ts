@@ -13,6 +13,10 @@ export interface CreateAccountInput {
   /** Mnemonic (HD) or private key (PK). Generated for HD when absent. */
   secret?: string;
   defaultNetwork?: string;
+  /** DESIGN §3's Cold Vault tier: the account locks separately from the session. */
+  hasOwnPassword?: boolean;
+  /** Required when hasOwnPassword is set. */
+  accountPassword?: string;
 }
 
 @Injectable()
@@ -27,6 +31,14 @@ export class AccountsService {
     if (input.kind === 'PK' && !input.secret) {
       throw new TeeError('TEE_INVALID_BODY', 'a PK account requires a private key');
     }
+    // Without a distinct password the flag would grant nothing: the account
+    // would be "separately locked" by the very secret that opened the session.
+    if (input.hasOwnPassword === true && !input.accountPassword) {
+      throw new TeeError('TEE_INVALID_BODY', 'hasOwnPassword requires accountPassword');
+    }
+    if (input.hasOwnPassword !== true && input.accountPassword !== undefined) {
+      throw new TeeError('TEE_INVALID_BODY', 'accountPassword requires hasOwnPassword');
+    }
 
     return this.mutateWalletIncrease(
       session,
@@ -38,12 +50,13 @@ export class AccountsService {
         // Always passed explicitly: wative-core defaults it to TRUE, so
         // omitting it would silently give every account its own password and
         // break the session model. See DESIGN.md §3.
+        const ownPassword = input.hasOwnPassword === true;
         const account = await session.handle.accounts.create(
           displayName,
-          session.password,
+          ownPassword ? input.accountPassword! : session.password,
           secret,
           input.defaultNetwork,
-          { kind: input.kind, hasOwnPassword: false },
+          { kind: input.kind, hasOwnPassword: ownPassword },
         );
         this.sessions.recordAccountExposure(session, String(account.slug));
         return account;
@@ -79,6 +92,14 @@ export class AccountsService {
 
   async importPrivateKey(session: Session, tenant: Tenant, slug: string, pk: string): Promise<Wallet> {
     const account = await this.sessions.requireAccount(session, slug);
+    // Mirror the derive guard. Without it core's UNSUPPORTED_OP surfaces as a
+    // 501, telling the caller the server lacks the feature rather than that
+    // they addressed an HD account — after their key was transmitted and
+    // quota headroom was reserved.
+    if (account.organizationType !== 'PK') {
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'only a PK account can import a private key');
+    }
+
     // vm is inferred from the key since 2.4.2, and a PK wallet now carries an
     // address on both chains.
     return this.mutateWalletIncrease(session, tenant, 1, () => account.importPrivateKey(pk));
