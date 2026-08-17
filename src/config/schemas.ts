@@ -4,10 +4,15 @@ import { SECRET_HASH_RE } from '../auth/secret';
 /** Tenant ids and workspace slugs become path components — keep them boring. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
+// Ten years. Bounded so `now + ttl * 1000` stays inside the Date range: a
+// larger value is schema-valid but makes toISOString() throw a RangeError on
+// the SUCCESS path, i.e. an opaque 500 on every token mint.
+const MAX_TTL_SEC = 315_360_000;
+
 export const TtlSchema = z.object({
-  workspaceIdleSec: z.number().int().positive().default(900),
-  workspaceAbsoluteSec: z.number().int().positive().default(28_800),
-  accountAbsoluteSec: z.number().int().positive().default(300),
+  workspaceIdleSec: z.number().int().positive().max(MAX_TTL_SEC).default(900),
+  workspaceAbsoluteSec: z.number().int().positive().max(MAX_TTL_SEC).default(28_800),
+  accountAbsoluteSec: z.number().int().positive().max(MAX_TTL_SEC).default(300),
 });
 
 export const LimitsSchema = z.object({
