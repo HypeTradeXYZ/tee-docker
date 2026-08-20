@@ -1,0 +1,35 @@
+# Secrets and machine state must never enter the build context. tenants.json
+# holds per-tenant secret hashes; .env* holds the server HMAC key. Both are
+# mounted at runtime instead.
+config/tenants*.json
+config/*.local.json
+.env
+.env.*
+!.env.example
+state
+data
+.wative2
+
+# node_modules is reinstalled inside the image from the lockfile; copying the
+# host tree would drag in darwin-arm64 native binaries that cannot load there.
+node_modules
+.pnpm-store
+dist
+
+# Not part of the runtime image.
+test
+scripts
+docs
+*.md
+jest.config.js
+
+# VCS and editor state.
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# Logs and scratch.
+*.log
+tmp

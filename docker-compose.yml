@@ -1,0 +1,103 @@
+# Dokploy Compose deployment.
+#
+# Why Compose rather than a Dokploy Application: exactly one instance may hold
+# a given TEE_STATE_DIR, and the lock is never reclaimed automatically (see
+# docs/OPERATIONS.md). Compose recreates a changed service stop-then-start, so
+# a redeploy hands the lock over cleanly. A Swarm service's default rolling
+# update starts the replacement before stopping the old one, which would meet a
+# held lock and crash-loop until someone deleted the lock file by hand.
+#
+# Set TEE_HOST_DIR and TEE_SECRET_HMAC_KEY in Dokploy's Environment tab.
+# See docs/DEPLOY.md for first-boot preparation of the host directory.
+
+services:
+  tee-docker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tee-docker:local
+    init: true
+    restart: unless-stopped
+
+    # Never raise this. Two instances against one state directory is the
+    # failure the lock exists to prevent.
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "${CPU_LIMIT:-1.0}"
+          memory: "${MEM_LIMIT:-1024M}"
+        reservations:
+          cpus: "${CPU_MIN:-0.5}"
+          memory: "${MEM_MIN:-512M}"
+
+    environment:
+      # Hard boot requirement, minimum 16 bytes. Every tenant's secretHash is
+      # computed under it, so changing it invalidates all of them at once.
+      TEE_SECRET_HMAC_KEY: "${TEE_SECRET_HMAC_KEY:?set TEE_SECRET_HMAC_KEY in the Dokploy Environment tab - the service will not boot without it}"
+
+      # One real Argon2 derivation must finish inside this budget or the
+      # service refuses to start. Raise it if a shared or throttled host makes
+      # the default 1000ms marginal; do not disable the check.
+      TEE_KDF_MAX_PROBE_MS: "${TEE_KDF_MAX_PROBE_MS:-1000}"
+
+      TEE_MAX_UNLOCKED_WORKSPACES: "${TEE_MAX_UNLOCKED_WORKSPACES:-32}"
+      TEE_MAX_TOKEN_LEASES_PER_WORKSPACE: "${TEE_MAX_TOKEN_LEASES_PER_WORKSPACE:-64}"
+      TEE_MINT_RATE_LIMIT: "${TEE_MINT_RATE_LIMIT:-10}"
+      TEE_WORKSPACE_CREATE_RATE_LIMIT: "${TEE_WORKSPACE_CREATE_RATE_LIMIT:-10}"
+      TEE_WORKSPACE_RECREATE_COOLDOWN_SEC: "${TEE_WORKSPACE_RECREATE_COOLDOWN_SEC:-60}"
+      TEE_MAX_RPC_OPERATIONS_PER_TENANT: "${TEE_MAX_RPC_OPERATIONS_PER_TENANT:-8}"
+      TEE_RPC_DEADLINE_MS: "${TEE_RPC_DEADLINE_MS:-15000}"
+
+    volumes:
+      # ${VAR:?} rather than a default: a mistyped path would otherwise have
+      # Docker create an empty directory, and an empty state directory looks
+      # exactly like a fresh install rather than a broken mount.
+      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/state:/var/lib/tee-docker/state"
+      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/data:/var/lib/tee-docker/data"
+      # Read-only: the service only ever reads this file. Mounted as a single
+      # file so errors.json stays the copy that shipped with the image.
+      # The host file must exist before first start, or Docker creates a
+      # DIRECTORY at this path and boot fails on unreadable operator config.
+      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/tenants.json:/app/config/tenants.json:ro"
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/v1/health').then(r=>r.json()).then(j=>process.exit(j.status==='ok'?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
+    # No published host port on purpose: Traefik reaches the container over
+    # dokploy-network, so port 3000 is never exposed on the host interface.
+    networks:
+      - dokploy-network
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.services.tee-docker.loadbalancer.server.port=3000
+
+      - traefik.http.routers.tee-docker-web.rule=Host(`tee-api.hypetrade.xyz`)
+      - traefik.http.routers.tee-docker-web.entrypoints=web
+      - traefik.http.routers.tee-docker-web.middlewares=tee-docker-https
+
+      - traefik.http.routers.tee-docker.rule=Host(`tee-api.hypetrade.xyz`)
+      - traefik.http.routers.tee-docker.entrypoints=websecure
+      - traefik.http.routers.tee-docker.tls.certresolver=letsencrypt
+      - traefik.http.routers.tee-docker.service=tee-docker
+
+      # Tenant API secrets and workspace tokens travel these requests. Plain
+      # HTTP is redirected rather than served.
+      - traefik.http.middlewares.tee-docker-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.tee-docker-https.redirectscheme.permanent=true
+
+networks:
+  dokploy-network:
+    external: true
