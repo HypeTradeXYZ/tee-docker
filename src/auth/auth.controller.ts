@@ -135,12 +135,12 @@ export class AuthController {
     };
   }
 
-  /** Lock the workspace and end the session. Every token naming it dies. */
+  /** Release this bearer lease. The workspace locks when its last lease goes. */
   @Delete('token')
   @HttpCode(204)
   @UseGuards(WorkspaceGuard)
   @SkipWorkspaceMutex()
-  async lock(
+  async release(
     @CurrentSession() session: Session,
     @CurrentLeaseId() jti: string,
   ): Promise<void> {

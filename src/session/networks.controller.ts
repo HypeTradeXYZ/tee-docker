@@ -23,10 +23,11 @@ interface NetworkView {
 /**
  * Networks and their RPC endpoints.
  *
- * tee-docker ships no RPC service. Resolution is three-tier — workspace
- * registry, then the tenant's configured map, then wative-core's built-in
- * default — and every response says which tier answered, so "why is this slow"
- * is never ambiguous.
+ * tee-docker ships no RPC service. The workspace registry is authoritative at
+ * read time — a tenant's configured map seeds it when the workspace is created,
+ * and a wative-core built-in answers only where `allowDefaultRpc` permits it
+ * (DESIGN §6). Every response reports which provenance applies, so "why is this
+ * slow" is never ambiguous.
  */
 @Controller('workspace/networks')
 @UseGuards(WorkspaceGuard, ScopesGuard)
