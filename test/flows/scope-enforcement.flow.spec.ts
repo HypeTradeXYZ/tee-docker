@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { Logger } from '@nestjs/common';
 import { SessionRegistry } from '../../src/session/session.registry';
 import { authHeaders, boot, type Harness } from '../harness/boot';
 
@@ -104,6 +105,46 @@ describe('scope-enforcement-flow', () => {
       code: 'scope_denied',
       details: { required: ['write'] },
     });
+  });
+
+  const exportRoutes = [
+    { path: '/v1/accounts/no-such-account/export', target: 'mnemonic' },
+    { path: '/v1/accounts/no-such-account/wallets/0/export?vm=evm', target: 'privateKey' },
+  ];
+
+  it.each(exportRoutes)('requires export for POST $path', async ({ path }) => {
+    const res = await http().post(path).set(bearer(readToken));
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({
+      code: 'scope_denied',
+      details: { required: ['export'] },
+    });
+  });
+
+  it.each(exportRoutes)('audits the refused $target export attempt', async ({ path, target }) => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    try {
+      await http().post(path).set(bearer(readToken)).expect(403);
+      const audited = warn.mock.calls
+        .map((call) => call[0])
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            typeof entry === 'object' && entry !== null && 'event' in entry,
+        )
+        .filter((entry) => entry.event === 'key_export');
+      expect(audited).toHaveLength(1);
+      expect(audited[0]).toMatchObject({
+        outcome: 'DENIED',
+        tenantId: 'acme',
+        workspaceSlug: 'desk-a',
+        target,
+        required: ['export'],
+      });
+      expect(audited[0]).toHaveProperty('requestId');
+      expect(JSON.stringify(audited[0])).not.toMatch(/no-such-account/);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('checks authentication before route scope', async () => {

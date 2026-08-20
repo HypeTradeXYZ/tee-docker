@@ -3,7 +3,7 @@ import { teeCoreError } from '../common/tee-error';
 import { z } from 'zod';
 
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
-import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AuditScopeDenial, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from '../session/account-slug';
@@ -36,6 +36,7 @@ export class ExportController {
 
   @Post('accounts/:slug/export')
   @HttpCode(200)
+  @AuditScopeDenial('key_export', 'mnemonic')
   async mnemonic(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
@@ -57,6 +58,7 @@ export class ExportController {
 
   @Post('accounts/:slug/wallets/:id/export')
   @HttpCode(200)
+  @AuditScopeDenial('key_export', 'privateKey')
   async privateKey(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
