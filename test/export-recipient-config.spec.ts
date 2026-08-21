@@ -86,13 +86,18 @@ describe('operator export recipient validation', () => {
     expect(rendered).not.toContain('OpenSSL');
   });
 
+  // The marker sits under `_exportPublicKey`: unmistakable to whoever edits the
+  // file, inert to the schema, so a copied example still boots. Renaming it is
+  // the act of enabling export.
   it('ships an unmistakable replacement marker, never a plausible low-order key', () => {
     const example = JSON.parse(readFileSync(
       resolve(__dirname, '../config/tenants.example.json'),
       'utf8',
-    )) as { tenants: Array<{ exportPublicKey?: string }> };
-    expect(example.tenants[0]?.exportPublicKey).toBe('REPLACE_ME_WITH_X25519_BASE64_PUBLIC_KEY');
-    expect(() => validateRecipient(example.tenants[0]!.exportPublicKey!)).toThrow();
+    )) as { tenants: Array<{ _exportPublicKey?: string; exportPublicKey?: string }> };
+    expect(example.tenants[0]?._exportPublicKey).toBe('REPLACE_ME_WITH_X25519_BASE64_PUBLIC_KEY');
+    expect(() => validateRecipient(example.tenants[0]!._exportPublicKey!)).toThrow();
+    // Never under the real key, where it would stop the service booting.
+    expect(example.tenants[0]?.exportPublicKey).toBeUndefined();
   });
 
   it('accepts ordinary generated Node X25519 keys', () => {

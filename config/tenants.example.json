@@ -4,8 +4,11 @@
     "secretHash is exactly 64 hexadecimal HMAC-SHA256 characters of the API secret",
     "under the server key (hex letter case is ignored) — not a",
     "slow KDF. See docs/DESIGN.md §10 for why.",
-    "exportPublicKey is optional; absent disables export for the tenant.",
-    "Replace the marker with a canonical base64 X25519 public key or remove the field."
+    "exportPublicKey is the X25519 recipient a tenant's exports are sealed to.",
+    "A tenant without one cannot export, because there is no key to encrypt to.",
+    "To enable export, rename _exportPublicKey and set a real value:",
+    "  \"exportPublicKey\": \"x25519:<43 base64 chars>=\"",
+    "The underscore keeps the marker inert, so this file boots as copied."
   ],
 
   "tenants": [
@@ -13,7 +16,8 @@
       "id": "acme",
       "apiKey": "ak_live_0123456789abcdef",
       "secretHash": "0000000000000000000000000000000000000000000000000000000000000000",
-      "exportPublicKey": "REPLACE_ME_WITH_X25519_BASE64_PUBLIC_KEY",
+
+      "_exportPublicKey": "REPLACE_ME_WITH_X25519_BASE64_PUBLIC_KEY",
 
       "limits": {
         "maxWorkspaces": 5,
