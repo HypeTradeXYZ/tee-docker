@@ -84,11 +84,11 @@ services:
       - traefik.docker.network=dokploy-network
       - traefik.http.services.tee-docker.loadbalancer.server.port=3000
 
-      - traefik.http.routers.tee-docker-web.rule=Host(`tee-api.hypetrade.xyz`)
+      - traefik.http.routers.tee-docker-web.rule=Host(`${TEE_API_HOST:-tee-api.hypetrade.xyz}`)
       - traefik.http.routers.tee-docker-web.entrypoints=web
       - traefik.http.routers.tee-docker-web.middlewares=tee-docker-https
 
-      - traefik.http.routers.tee-docker.rule=Host(`tee-api.hypetrade.xyz`)
+      - traefik.http.routers.tee-docker.rule=Host(`${TEE_API_HOST:-tee-api.hypetrade.xyz}`)
       - traefik.http.routers.tee-docker.entrypoints=websecure
       - traefik.http.routers.tee-docker.tls.certresolver=letsencrypt
       - traefik.http.routers.tee-docker.service=tee-docker
