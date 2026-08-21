@@ -32,10 +32,15 @@ describe('cors-flow', () => {
       for (const header of ['authorization', 'content-type', 'x-api-key', 'x-api-secret', 'x-request-id']) {
         expect(allowedHeaders).toContain(header);
       }
-      const allowedMethods = String(res.headers['access-control-allow-methods']).toUpperCase();
-      for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
-        expect(allowedMethods).toContain(method);
-      }
+      // Exact set, not `toContain` per method: a containment check passes just
+      // as happily when a method is added or dropped, which is the drift worth
+      // catching. OPTIONS is advertised because the preflight is itself OPTIONS.
+      const allowedMethods = String(res.headers['access-control-allow-methods'])
+        .toUpperCase()
+        .split(',')
+        .map((method) => method.trim())
+        .sort();
+      expect(allowedMethods).toEqual(['DELETE', 'GET', 'OPTIONS', 'POST', 'PUT']);
     });
 
     // A refused preflight is not short-circuited, so it falls through to the
