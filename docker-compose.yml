@@ -7,8 +7,10 @@
 # update starts the replacement before stopping the old one, which would meet a
 # held lock and crash-loop until someone deleted the lock file by hand.
 #
-# Set TEE_HOST_DIR and TEE_SECRET_HMAC_KEY in Dokploy's Environment tab.
-# See docs/DEPLOY.md for first-boot preparation of the host directory.
+# Set TEE_SECRET_HMAC_KEY in Dokploy's Environment tab. Everything else is
+# literal here. Dokploy's Compose Type MUST be `docker compose`, not Stack:
+# Swarm ignores `build:` and restores the rolling update this design avoids.
+# See docs/DEPLOY.md for first-boot preparation of /opt/tee-docker.
 
 services:
   tee-docker:
@@ -25,41 +27,53 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "${CPU_LIMIT:-1.0}"
-          memory: "${MEM_LIMIT:-1024M}"
+          cpus: "1.0"
+          memory: "1024M"
         reservations:
-          cpus: "${CPU_MIN:-0.5}"
-          memory: "${MEM_MIN:-512M}"
+          cpus: "0.5"
+          memory: "512M"
 
+    # List form with bare names for anything secret: Compose passes the value
+    # through when set and leaves the variable UNDEFINED when not. The mapping
+    # form "${VAR}" would instead inject an empty string, which would override
+    # a value Dokploy had already placed in the container. Everything else is a
+    # literal, so this file needs no parse-time interpolation to deploy.
     environment:
       # Hard boot requirement, minimum 16 bytes. Every tenant's secretHash is
       # computed under it, so changing it invalidates all of them at once.
-      TEE_SECRET_HMAC_KEY: "${TEE_SECRET_HMAC_KEY:?set TEE_SECRET_HMAC_KEY in the Dokploy Environment tab - the service will not boot without it}"
+      # Absent, the service stops at boot with its own explicit message.
+      - TEE_SECRET_HMAC_KEY
 
       # One real Argon2 derivation must finish inside this budget or the
-      # service refuses to start. Raise it if a shared or throttled host makes
-      # the default 1000ms marginal; do not disable the check.
-      TEE_KDF_MAX_PROBE_MS: "${TEE_KDF_MAX_PROBE_MS:-1000}"
+      # service refuses to start. Measured at 559ms on an idle laptop, so the
+      # 1000ms default leaves little room on a shared VPS core. Raised here
+      # deliberately; do not disable the check.
+      - TEE_KDF_MAX_PROBE_MS=2500
 
-      TEE_MAX_UNLOCKED_WORKSPACES: "${TEE_MAX_UNLOCKED_WORKSPACES:-32}"
-      TEE_MAX_TOKEN_LEASES_PER_WORKSPACE: "${TEE_MAX_TOKEN_LEASES_PER_WORKSPACE:-64}"
-      TEE_MINT_RATE_LIMIT: "${TEE_MINT_RATE_LIMIT:-10}"
-      TEE_WORKSPACE_CREATE_RATE_LIMIT: "${TEE_WORKSPACE_CREATE_RATE_LIMIT:-10}"
-      TEE_WORKSPACE_RECREATE_COOLDOWN_SEC: "${TEE_WORKSPACE_RECREATE_COOLDOWN_SEC:-60}"
-      TEE_MAX_RPC_OPERATIONS_PER_TENANT: "${TEE_MAX_RPC_OPERATIONS_PER_TENANT:-8}"
-      TEE_RPC_DEADLINE_MS: "${TEE_RPC_DEADLINE_MS:-15000}"
+      - TEE_MAX_UNLOCKED_WORKSPACES=32
+      - TEE_MAX_TOKEN_LEASES_PER_WORKSPACE=64
+      - TEE_MINT_RATE_LIMIT=10
+      - TEE_WORKSPACE_CREATE_RATE_LIMIT=10
+      - TEE_WORKSPACE_RECREATE_COOLDOWN_SEC=60
+      - TEE_MAX_RPC_OPERATIONS_PER_TENANT=8
+      - TEE_RPC_DEADLINE_MS=15000
 
+    # Host paths are literal on purpose. Compose resolves volume paths when it
+    # PARSES this file, before any container exists, so a "${VAR}" here would
+    # depend on the deploying process seeing that variable rather than the
+    # container seeing it. A literal cannot fail that way.
+    #
+    # These directories must exist and be owned by uid 1000 before the first
+    # start. Docker silently creates a missing bind-mount source as root, and
+    # the service chmods its state directory to 0700 on boot, which requires
+    # ownership. See docs/DEPLOY.md.
     volumes:
-      # ${VAR:?} rather than a default: a mistyped path would otherwise have
-      # Docker create an empty directory, and an empty state directory looks
-      # exactly like a fresh install rather than a broken mount.
-      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/state:/var/lib/tee-docker/state"
-      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/data:/var/lib/tee-docker/data"
+      - /opt/tee-docker/state:/var/lib/tee-docker/state
+      - /opt/tee-docker/data:/var/lib/tee-docker/data
       # Read-only: the service only ever reads this file. Mounted as a single
-      # file so errors.json stays the copy that shipped with the image.
-      # The host file must exist before first start, or Docker creates a
-      # DIRECTORY at this path and boot fails on unreadable operator config.
-      - "${TEE_HOST_DIR:?set TEE_HOST_DIR to an absolute host path - see docs/DEPLOY.md}/tenants.json:/app/config/tenants.json:ro"
+      # file so errors.json stays the copy that shipped with the image. The
+      # host file must exist first, or Docker creates a DIRECTORY here.
+      - /opt/tee-docker/tenants.json:/app/config/tenants.json:ro
 
     healthcheck:
       test:
