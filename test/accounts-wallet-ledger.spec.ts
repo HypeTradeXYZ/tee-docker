@@ -33,6 +33,7 @@ const tenant: Tenant = {
   rpc: {},
   allowDefaultRpc: true,
   exportEnabled: false,
+  origins: [],
 };
 
 describe('account display-name admission', () => {

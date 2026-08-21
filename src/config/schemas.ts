@@ -4,6 +4,10 @@ import { SECRET_HASH_RE } from '../auth/secret';
 /** Tenant ids and workspace slugs become path components — keep them boring. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
+// A browser sends scheme://host[:port] and nothing else, so anything carrying a
+// path, a wildcard or credentials could never match one and is a config error.
+export const ORIGIN_RE = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i;
+
 // Ten years. Bounded so `now + ttl * 1000` stays inside the Date range: a
 // larger value is schema-valid but makes toISOString() throw a RangeError on
 // the SUCCESS path, i.e. an opaque 500 on every token mint.
@@ -36,6 +40,10 @@ export const TenantSchema = z.object({
   /** Seeds a new workspace's network registry at creation. */
   rpc: z.record(z.string(), z.url()).optional(),
   allowDefaultRpc: z.boolean().optional(),
+  /** Browser origins allowed to read this tenant's responses. Absent allows none. */
+  origins: z
+    .array(z.string().regex(ORIGIN_RE, 'expected an origin like https://app.example.com'))
+    .optional(),
 });
 
 export const TenantsConfigSchema = z
@@ -150,4 +158,5 @@ export interface Tenant {
   readonly rpc: Readonly<Record<string, string>>;
   readonly allowDefaultRpc: boolean;
   readonly exportEnabled: boolean;
+  readonly origins: readonly string[];
 }

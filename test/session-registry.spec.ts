@@ -34,6 +34,7 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
     rpc: {},
     allowDefaultRpc: true,
     exportEnabled: false,
+    origins: [],
   };
 }
 
@@ -203,6 +204,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-test' } as Paths,
@@ -276,6 +278,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-open-failure-test' } as Paths,
@@ -341,6 +344,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-shutdown-failure-test' } as Paths,
@@ -404,6 +408,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-failure-test' } as Paths,
@@ -479,6 +484,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-shutdown-test' } as Paths,
@@ -524,6 +530,7 @@ describe('SessionRegistry close failure', () => {
       rpc: {},
       allowDefaultRpc: true,
       exportEnabled: false,
+      origins: [],
     };
     const handle = {
       accounts: [],

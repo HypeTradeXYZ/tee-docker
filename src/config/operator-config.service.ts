@@ -60,5 +60,6 @@ function normalizeTenant(raw: RawTenant): Tenant {
     rpc: raw.rpc ?? {},
     allowDefaultRpc: raw.allowDefaultRpc ?? true,
     exportEnabled: raw.exportPublicKey !== undefined,
+    origins: raw.origins ?? [],
   };
 }

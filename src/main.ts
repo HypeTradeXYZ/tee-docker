@@ -5,6 +5,8 @@ import type { INestApplication } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { loadEnvFiles } from './config/env';
 import { installRequestIdMiddleware } from './common/request-id.middleware';
+import { installCors } from './common/cors';
+import { OperatorConfigService } from './config/operator-config.service';
 import { takeHeldServiceState } from './config/config.module';
 import { SessionRegistry } from './session/session.registry';
 
@@ -24,6 +26,7 @@ async function bootstrap(): Promise<void> {
   booted = app;
   installFatalHandlers(app);
   installRequestIdMiddleware(app);
+  installCors(app, app.get(OperatorConfigService).all.flatMap((tenant) => tenant.origins));
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
 

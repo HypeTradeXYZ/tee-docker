@@ -13,6 +13,7 @@ import {
 } from '../../src/session/rpc-boundary.service';
 import { ACCOUNT_UNLOCK_CLOCK, type AccountUnlockClock } from '../../src/auth/account-unlock-limiter';
 import { installRequestIdMiddleware } from '../../src/common/request-id.middleware';
+import { installCors } from '../../src/common/cors';
 import {
   WORKSPACE_CREATION_CLOCK,
   type WorkspaceCreationClock,
@@ -71,10 +72,8 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
   const configDir = join(baseDir, 'config');
   mkdirSync(configDir, { recursive: true });
 
-  writeFileSync(
-    join(configDir, 'tenants.json'),
-    JSON.stringify({ tenants: options.tenants ?? [DEFAULT_TENANT] }, null, 2),
-  );
+  const tenants = options.tenants ?? [DEFAULT_TENANT];
+  writeFileSync(join(configDir, 'tenants.json'), JSON.stringify({ tenants }, null, 2));
 
   // Use the real shipped error map rather than a fixture — a flow that gets a
   // status wrong should fail here, not in production.
@@ -134,6 +133,10 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
     const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication();
     installRequestIdMiddleware(app);
+    installCors(
+      app,
+      tenants.flatMap((tenant) => (tenant as { origins?: string[] }).origins ?? []),
+    );
     app.setGlobalPrefix('v1');
     await app.init();
   } catch (err) {

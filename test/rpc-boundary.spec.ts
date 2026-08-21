@@ -89,6 +89,7 @@ describe('RPC egress boundary', () => {
       rpc: { ethereum: 'https://127.0.0.1/internal' },
       allowDefaultRpc: false,
       exportEnabled: false,
+      origins: [],
     };
     const service = boundary(
       async () => [{ address: '8.8.8.8', family: 4 }],
