@@ -4,6 +4,7 @@ import { TenantsConfigSchema } from '../src/config/schemas';
 
 /**
  * The example is a template someone copies verbatim, so it has to start.
+ * These tests cover the schema layer only — see the note on the first case.
  *
  * It previously shipped a REPLACE_ME marker in `exportPublicKey`, which fails
  * the X25519 format check — a first-time self-hoster who copied it and edited
@@ -15,7 +16,13 @@ describe('config/tenants.example.json', () => {
     readFileSync(join(__dirname, '..', 'config', 'tenants.example.json'), 'utf8'),
   );
 
-  it('parses as shipped, so copying it produces a service that starts', () => {
+  /**
+   * Parsing is not booting. RpcBoundaryService resolves every tenant `rpc`
+   * endpoint over live DNS in onModuleInit and refuses to start on a failure,
+   * which no unit test reaches — so this proves the schema layer only, and a
+   * file that passes here can still fail closed at startup.
+   */
+  it('parses as shipped', () => {
     expect(TenantsConfigSchema.safeParse({ tenants: raw.tenants }).success).toBe(true);
   });
 
