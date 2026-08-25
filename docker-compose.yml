@@ -44,13 +44,22 @@ services:
     # List form with bare names for anything secret: Compose passes the value
     # through when set and leaves the variable UNDEFINED when not. The mapping
     # form "${VAR}" would instead inject an empty string, which would override
-    # a value Dokploy had already placed in the container. Everything else is a
-    # literal, so this file needs no parse-time interpolation to deploy.
+    # a value Dokploy had already placed in the container. Every other value
+    # here is a literal; the sole interpolation is the TEE_API_HOST override in
+    # the Traefik labels below, which carries a default and so cannot fail the
+    # parse. Nothing in this file requires a variable to be set to deploy.
     environment:
       # Hard boot requirement, minimum 16 bytes. Every tenant's secretHash is
       # computed under it, so changing it invalidates all of them at once.
       # Absent, the service stops at boot with its own explicit message.
       - TEE_SECRET_HMAC_KEY
+
+      # Pinned here, not just in the image. NODE_ENV=test makes wative-core run
+      # REDUCED KDF iterations *and* makes the boot probe skip itself with only
+      # an info log — the one KDF escape hatch that fails open rather than
+      # refusing to boot. A literal here beats anything set in Dokploy's
+      # Environment tab, so an operator typo cannot weaken key derivation.
+      - NODE_ENV=production
 
       # One real Argon2 derivation must finish inside this budget or the
       # service refuses to start. Measured at 559ms on an idle laptop, so the
