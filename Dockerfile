@@ -73,7 +73,13 @@ RUN mkdir -p /var/lib/tee-docker/state /var/lib/tee-docker/data \
 
 USER node
 
-ENV NODE_ENV=production \
+# Bound V8 explicitly. Without this it sizes its heap from HOST memory, so on a
+# large VPS it will happily grow past the container's 1024M cap and take a
+# kernel OOM SIGKILL — uncatchable, so decrypted handles die unlocked and the
+# state lock is stranded for a human to clear. Held well under the cap because
+# Argon2 is memory-hard and allocates NATIVELY, outside this heap.
+ENV NODE_OPTIONS=--max-old-space-size=512 \
+    NODE_ENV=production \
     PORT=3000 \
     TEE_CONFIG_DIR=/app/config \
     TEE_STATE_DIR=/var/lib/tee-docker/state \
