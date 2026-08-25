@@ -68,8 +68,14 @@ COPY config/errors.json ./config/errors.json
 # means a named volume inherits the right owner. A BIND mount does not - the
 # host directory keeps its own ownership, so it must be chown 1000:1000
 # before first start or boot fails with EPERM. See docs/DEPLOY.md.
+# 0700, not the umask default. `mkdir -p` under the build's umask 022 yields
+# 0755, and the data root holds the ENCRYPTED WALLET SEEDS — the service
+# hardens its own state directory to 0700 at boot but never touches this one,
+# so anything else sharing the volume could list and read it. At-rest
+# encryption should not be the only barrier.
 RUN mkdir -p /var/lib/tee-docker/state /var/lib/tee-docker/data \
-    && chown -R node:node /app /var/lib/tee-docker
+    && chown -R node:node /app /var/lib/tee-docker \
+    && chmod 700 /var/lib/tee-docker/state /var/lib/tee-docker/data
 
 USER node
 
