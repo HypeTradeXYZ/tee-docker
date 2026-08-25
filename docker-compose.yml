@@ -21,6 +21,14 @@ services:
     init: true
     restart: unless-stopped
 
+    # Must outlast the longest in-flight operation. An RPC call may run for 15s
+    # (TEE_RPC_DEADLINE_MS, and the relay's own hard limit), while Docker's
+    # default stop grace is 10s — so a redeploy during a live RPC would SIGKILL
+    # the process mid-drain. SIGKILL cannot be caught, so the fatal-exit lock
+    # release does not cover it, and the state lock is left stranded for a
+    # human to clear. 30s leaves margin above the 15s ceiling.
+    stop_grace_period: 30s
+
     # Never raise this. Two instances against one state directory is the
     # failure the lock exists to prevent.
     deploy:
