@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import type { Address } from 'wative-core';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { SessionRegistry, type Session } from './session.registry';
@@ -86,7 +87,10 @@ export class SignController {
   ): Promise<{ address: string; signature: string; messageHash?: string }> {
     const parsed = SignMessage.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { address, message, encoding? }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { address, message, encoding? }', parsed.error, body),
+      );
     }
 
     const address = await this.resolve(session, parsed.data.address);
@@ -109,7 +113,10 @@ export class SignController {
   ): Promise<{ address: string; signature: string; domainSeparator: string; structHash: string }> {
     const parsed = SignTypedData.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { address, typedData, chainId? }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { address, typedData, chainId? }', parsed.error, body),
+      );
     }
 
     const address = await this.resolve(session, parsed.data.address);

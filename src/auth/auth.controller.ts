@@ -2,6 +2,7 @@ import { Body, Controller, Delete, HttpCode, Post, Res, UseGuards } from '@nestj
 import type { Response } from 'express';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import type { Tenant } from '../config/schemas';
 import type { Session } from '../session/session.registry';
 import { SessionRegistry } from '../session/session.registry';
@@ -53,7 +54,10 @@ export class AuthController {
   ): Promise<{ token: string; expiresAt: string; workspace: string; scopes: string[] }> {
     const parsed = TokenBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { workspace, password, scopes? }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { workspace, password, scopes? }', parsed.error, body),
+      );
     }
 
     const workspace = assertValidSlug(parsed.data.workspace);

@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import { SLUG_RE, type Tenant } from '../config/schemas';
@@ -56,7 +57,14 @@ export class AccountsController {
   ): Promise<{ account: AccountView; generatedSecret: boolean }> {
     const parsed = CreateAccount.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword? }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage(
+          'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword? }',
+          parsed.error,
+          body,
+        ),
+      );
     }
 
     const account = await this.accounts.create(session, tenant, parsed.data);
@@ -85,7 +93,12 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ before: number; after: number }> {
     const parsed = DeriveWallets.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { count }');
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { count }', parsed.error, body),
+      );
+    }
     return this.accounts.deriveWallets(
       session,
       tenant,
@@ -104,7 +117,12 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ wallet: WalletView }> {
     const parsed = ImportKey.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { privateKey }');
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { privateKey }', parsed.error, body),
+      );
+    }
     const wallet = await this.accounts.importPrivateKey(
       session,
       tenant,
@@ -147,7 +165,12 @@ export class AccountsController {
     @Body() body: unknown,
   ): Promise<{ wallet: WalletView }> {
     const parsed = SetTags.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { tags }');
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { tags }', parsed.error, body),
+      );
+    }
     const walletId = parseWalletId(id);
 
     const account = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import {
   CurrentSession,
   CurrentTokenTenant,
@@ -127,7 +128,10 @@ export class WorkspaceController {
   ): Promise<void> {
     const parsed = UnlockBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { accountPassword }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { accountPassword }', parsed.error, body),
+      );
     }
     await this.sessions.unlockAccount(
       session,

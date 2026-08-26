@@ -8,6 +8,7 @@ import {
   type TransactionTracker,
 } from 'wative-core';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import type { Tenant } from '../config/schemas';
@@ -196,7 +197,10 @@ export class TransactionsController {
   ): Promise<{ address: Address; tx: Transaction }> {
     const parsed = BuildBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must name an address and a destination');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must name an address and a destination', parsed.error, body),
+      );
     }
 
     const address = await this.resolveAddress(session, parsed.data.address);

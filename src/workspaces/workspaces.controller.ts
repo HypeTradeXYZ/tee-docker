@@ -12,6 +12,7 @@ import {
 import { z } from 'zod';
 
 import { TeeError, teeCoreError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import type { Tenant, WorkspaceState } from '../config/schemas';
 import { CurrentTenant, TenantGuard } from '../auth/tenant.guard';
 import { WorkspacesService } from './workspaces.service';
@@ -45,7 +46,10 @@ export class WorkspacesController {
   ): Promise<{ workspace: WorkspaceState }> {
     const parsed = CreateBody.safeParse(body);
     if (!parsed.success) {
-      throw new TeeError('TEE_INVALID_BODY', 'body must be { slug, password }');
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { slug, password }', parsed.error, body),
+      );
     }
     const slug = assertValidSlug(parsed.data.slug);
     const workspace = await this.workspaces.create(tenant, slug, parsed.data.password);

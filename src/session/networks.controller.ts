@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { Network } from 'wative-core';
 import { TeeError } from '../common/tee-error';
+import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import type { Tenant } from '../config/schemas';
@@ -60,7 +61,12 @@ export class NetworksController {
     @Body() body: unknown,
   ): Promise<{ network: string; rpcSource: RpcSource }> {
     const parsed = SetRpc.safeParse(body);
-    if (!parsed.success) throw new TeeError('TEE_INVALID_BODY', 'body must be { rpcUrl }');
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { rpcUrl }', parsed.error, body),
+      );
+    }
 
     const network = session.handle.networks.bySlug(assertValidSlug(slug) as never);
     if (!network) {
