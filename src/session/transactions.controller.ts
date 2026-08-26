@@ -7,7 +7,7 @@ import {
   type Transaction,
   type TransactionTracker,
 } from 'wative-core';
-import { TeeError } from '../common/tee-error';
+import { TeeError, teeCoreError } from '../common/tee-error';
 import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
@@ -173,6 +173,15 @@ export class TransactionsController {
     const raw = await this.rpcOperations.run(session, 'read', () =>
       jsonRpc(rpc.url as string, payload, this.rpcOperations.config.deadlineMs),
     );
+    // A JSON-RPC error arrives with HTTP 200 and no `result`, which is exactly
+    // the shape of "not mined yet". Reporting it as pending tells the caller to
+    // keep waiting for a lookup that will never succeed — an unsupported method,
+    // a rate-limited key or a rejected hash would look like a healthy mempool
+    // entry forever. Separate them before reading the result.
+    if (isJsonRpcError(raw)) {
+      throw teeCoreError('RPC_REJECTED', 'the RPC endpoint rejected the status lookup');
+    }
+
     const result = isEvm
       ? (raw as { result?: { status?: string } | null }).result
       : ((raw as { result?: { value?: unknown[] } }).result?.value?.[0] ?? null);
@@ -409,6 +418,17 @@ export async function stopSubmittedTracker(
     }
   }
   if (failures.length > 0) throw new AggregateError(failures, 'transaction tracker cleanup failed');
+}
+
+/**
+ * A JSON-RPC failure, which the transport delivers as HTTP 200 with an `error`
+ * member and no `result`. Deliberately narrow: only an object carrying `error`
+ * counts, so an ordinary "not found yet" reply still reads as pending.
+ */
+function isJsonRpcError(raw: unknown): boolean {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const error = (raw as { error?: unknown }).error;
+  return error !== undefined && error !== null;
 }
 
 export function assertSimulationTransport(sim: {

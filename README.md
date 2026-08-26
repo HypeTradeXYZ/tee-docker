@@ -254,7 +254,8 @@ domain named a different chain than the one being signed for; see the signing no
 
 Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
 check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may
-still have reached the network.
+still have reached the network. A status lookup the endpoint itself refuses answers `rpc_rejected`
+rather than `pending`, so a failing endpoint is never mistaken for a transaction still in flight.
 
 ## Safe usage
 

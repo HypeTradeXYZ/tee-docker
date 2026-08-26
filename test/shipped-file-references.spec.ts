@@ -8,11 +8,14 @@ const ROOT = join(__dirname, '..');
  * shipped-file-references — a tracked file must not send a reader somewhere the
  * repository does not go.
  *
- * `docs/` is deliberately gitignored, so a comment reading "see docs/DEPLOY.md"
- * is an instruction that cannot be followed by anyone who only has the clone —
- * which is everyone. This has been fixed once before, in the state-lock refusal
- * message, and then reintroduced a week later in the compose file, so the rule
- * needs a guard rather than a habit.
+ * The `docs` tree is deliberately gitignored, so a comment pointing a reader at
+ * a markdown file inside it is an instruction nobody working from the clone can
+ * follow — which is everyone. This was fixed once in the state-lock refusal
+ * message and reintroduced a week later in the compose file, so the rule needs a
+ * guard rather than a habit.
+ *
+ * Note this file is itself scanned, so the pattern is described here rather than
+ * written out; a guard with an exemption for itself is a guard with a hole.
  *
  * `.gitignore` is the file that does the ignoring, so it is allowed to name the
  * path it excludes.
