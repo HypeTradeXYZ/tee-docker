@@ -37,6 +37,7 @@ export const TEE_ERROR_CODES = [
   'TEE_BALANCES_UNAVAILABLE',
   'TEE_WORKSPACE_CREATE_RATE',
   'TEE_WORKSPACE_RECREATE_COOLDOWN',
+  'TEE_CHAIN_ID_MISMATCH',
 ] as const;
 
 export type TeeErrorCode = (typeof TEE_ERROR_CODES)[number];

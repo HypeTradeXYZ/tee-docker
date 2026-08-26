@@ -141,12 +141,65 @@ All routes use the `/v1` prefix.
 | Check balance availability (currently `501`) | `GET /addresses/:publicKey/balances` | Workspace token |
 | View or update network endpoints | `/workspace/networks` | Workspace token |
 | Sign a message | `POST /sign/message` | `sign` scope |
+| Sign EIP-712 typed data | `POST /sign/typed-data` | `sign` scope |
 | Build, simulate, send, or check a transaction | `/transactions` | `sign` scope |
 | Export an encrypted recovery phrase or private key | Account export routes | `export` scope |
 
 The default workspace token includes `read`, `write`, and `sign`. Request `export` explicitly only
 when the tenant has export enabled.
 When exporting a private key, add `?vm=evm` or `?vm=svm`; the response repeats the selection.
+
+## Signing
+
+### Messages
+
+`POST /sign/message` takes `{ address, message, encoding? }`. The `message` field is always read as
+a UTF-8 string — the text `"0xdeadbeef"` is signed as those ten characters, never as four bytes.
+
+| `encoding` | Address kind | What is signed |
+|---|---|---|
+| omitted | any | The UTF-8 text, using that address's own default scheme. No `messageHash` is returned. |
+| `personal_sign` | EVM only | The UTF-8 text, with the standard Ethereum message prefix. Returns `messageHash`. |
+| `raw` | EVM only | The keccak-256 hash of the *decoded* bytes, with no prefix. Requires `message` to be `0x`-prefixed hex of even length. |
+| `ed25519` | Solana only | The UTF-8 text, signed directly. `messageHash` echoes the message bytes as hex rather than a hash. |
+
+Naming an encoding the address cannot perform returns `501 unsupported_operation` — asking for
+`ed25519` on an EVM address, or `personal_sign` on a Solana one. Omitting `encoding` works for both
+kinds, so it is the portable choice when one code path signs with either.
+
+There is no mode that signs a pre-computed 32-byte digest as-is: `raw` decodes hex and then hashes
+it, so the value you send is never itself the digest.
+
+### Typed data
+
+`POST /sign/typed-data` takes `{ address, typedData, chainId? }` and is EVM-only. Send `typedData`
+as the standard `eth_signTypedData_v4` **object**:
+
+```json
+{
+  "address": "0x…",
+  "chainId": 8453,
+  "typedData": {
+    "domain": { "name": "My App", "version": "1", "chainId": 8453, "verifyingContract": "0x…" },
+    "types": { "Msg": [{ "name": "content", "type": "string" }] },
+    "primaryType": "Msg",
+    "message": { "content": "hello" }
+  }
+}
+```
+
+Two things catch integrators out:
+
+- **Send an object, not a string.** The `eth_signTypedData_v4` JSON-RPC method carries the payload
+  already stringified in its second parameter. Forwarding that parameter as-is is rejected.
+- **The domain must agree about the chain.** If `typedData.domain.chainId` is present it has to
+  equal the chain being signed for — the `chainId` you send, or, when you send none, the chain the
+  address itself is on. A disagreement is refused as `chain_id_mismatch` naming both values, and
+  sending `chainId` equal to `domain.chainId` avoids the question entirely.
+
+`primaryType` must exactly name one of the structs in `types`; matching is case-sensitive. An
+`EIP712Domain` entry in `types` is accepted and ignored, as are struct types you do not reference.
+The response returns the `signature` with the `domainSeparator` and `structHash` it was built from.
 
 ## Common responses
 
@@ -174,7 +227,8 @@ Common situations include expired tokens (`session_expired`), missing permission
 For invalid requests, `invalid_slug` means a workspace or account ID has invalid syntax,
 `invalid_body` means the JSON shape or field combination is wrong, and `invalid_parameter` means
 a path or query selector is malformed. `unsupported_for_kind` means the selected account, wallet,
-or chain type cannot perform that otherwise valid operation.
+or chain type cannot perform that otherwise valid operation. `chain_id_mismatch` means a typed-data
+domain named a different chain than the one being signed for; see the signing notes below.
 
 Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
 check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may

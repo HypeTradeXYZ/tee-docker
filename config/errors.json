@@ -54,6 +54,7 @@
     "TEE_RPC_CAPACITY": { "status": 429, "code": "rpc_capacity_exceeded", "exposeDetails": true },
     "TEE_BALANCES_UNAVAILABLE": { "status": 501, "code": "not_implemented", "exposeMessage": true, "publicMessage": "Balance lookup is not available in this release." },
     "TEE_WORKSPACE_CREATE_RATE": { "status": 429, "code": "workspace_creation_rate_limited", "exposeDetails": true },
-    "TEE_WORKSPACE_RECREATE_COOLDOWN": { "status": 429, "code": "workspace_recreation_cooldown", "exposeDetails": true }
+    "TEE_WORKSPACE_RECREATE_COOLDOWN": { "status": 429, "code": "workspace_recreation_cooldown", "exposeDetails": true },
+    "TEE_CHAIN_ID_MISMATCH": { "status": 400, "code": "chain_id_mismatch" }
   }
 }
