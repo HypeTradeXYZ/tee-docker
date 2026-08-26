@@ -68,7 +68,7 @@ export const TenantSchema = z.object({
     }
   }),
   apiKey: z.string().min(16),
-  /** HMAC-SHA256 of the API secret. Not a slow KDF — see DESIGN.md §10. */
+  /** HMAC-SHA256 of the API secret under the server key. Deliberately not a slow KDF: it is verified on every request, and the secret is high-entropy rather than user-chosen. */
   secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),
   /** Absent disables export for this tenant. Doubles as the enable flag. */
   exportPublicKey: z
@@ -78,15 +78,23 @@ export const TenantSchema = z.object({
   limits: LimitsSchema,
   ttl: TtlSchema.optional(),
   /** Seeds a new workspace's network registry at creation. */
-  rpc: z.record(z.string(), z.url()).optional(),
+  // Keys are network slugs and are looked up by exact slug, so an unconstrained
+  // key is config that can never match — the same dead-entry class the origin
+  // rule refuses. Left bare, `"Ethereum"` boots clean, warns once at the first
+  // workspace create, and leaves the endpoint permanently unused. The sibling
+  // records below already constrain their keys this way.
+  rpc: z.record(z.string().regex(SLUG_RE, 'network keys must be lowercase slugs'), z.url())
+    .optional(),
   allowDefaultRpc: z.boolean().optional(),
   /** Browser origins allowed to read this tenant's responses. Absent allows none. */
   origins: z
     .array(
       z.string().regex(
         ORIGIN_RE,
-        'expected a lower-case origin like https://app.example.com — scheme and host'
-          + ' must be lower case, with no path, wildcard, credentials or trailing slash',
+        'expected an origin like https://app.example.com: http or https, a host of'
+          + ' lower-case letters, digits, dots or hyphens, an optional port, and nothing'
+          + ' else — no path, wildcard, credentials or trailing slash. IPv6 literals and'
+          + ' underscore hosts are not supported here.',
       ),
     )
     .optional(),

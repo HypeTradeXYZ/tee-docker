@@ -148,6 +148,28 @@ describe('hash-secret helper (L-08)', () => {
     expect(stderr).not.toContain('café-sécret');
   });
 
+  // HTTP strips outer whitespace from a header value, so a secret carrying it
+  // would hash to something no client can send — a permanent 401 from every
+  // caller, which is worse than the encoding ambiguity the ASCII check covers.
+  it.each([['trailing', 'sk_abc123 '], ['leading', ' sk_abc123']])(
+    'refuses a %s space, which HTTP would strip',
+    (_name, secret) => {
+      const env = { ...process.env, TEE_SECRET_HMAC_KEY: 'a1'.repeat(16) };
+      let stderr = '';
+      try {
+        execFileSync('node', [join(ROOT, 'scripts/hash-secret.mjs'), secret], {
+          env,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        throw new Error('expected a failure');
+      } catch (err) {
+        stderr = String((err as { stderr?: string }).stderr ?? '');
+      }
+      expect(stderr).toContain('whitespace');
+    },
+  );
+
   it('still accepts every printable ASCII character, including spaces', () => {
     const key = 'a1'.repeat(16);
     const secret = 'a passphrase with spaces and ~!@#$%^&*()_+ symbols';

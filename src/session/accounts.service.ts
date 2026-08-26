@@ -57,7 +57,7 @@ export class AccountsService {
         const secret = input.secret ?? newMnemonic();
         // Always passed explicitly: wative-core defaults it to TRUE, so
         // omitting it would silently give every account its own password and
-        // break the session model. See DESIGN.md §3.
+        // break the session model.
         const ownPassword = input.hasOwnPassword === true;
         const account = await session.handle.accounts.create(
           displayName,

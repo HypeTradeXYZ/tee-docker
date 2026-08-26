@@ -38,7 +38,8 @@ export function mintRateLimitFromEnv(env: NodeJS.ProcessEnv = process.env): numb
  * backend, seconds if a deployment falls back to pure JS). General request
  * limits do not help, because the cost is not in the request count.
  *
- * DESIGN.md §10.
+ * The budget is shared with account unlock, which pays the same derivation, so
+ * one caller cannot dodge the ceiling by alternating between the two.
  */
 @Injectable()
 export class MintRateLimiter {

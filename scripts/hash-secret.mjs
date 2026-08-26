@@ -55,6 +55,17 @@ async function main() {
         + "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64url'))\"",
     );
   }
+  // An HTTP parser strips leading and trailing whitespace from a header value,
+  // so a secret with an outer space hashes to something NO client can ever
+  // send — a permanent 401 from every caller, which is worse than the
+  // encoding ambiguity above. Interior spaces are fine and stay allowed.
+  if (/^\s|\s$/.test(secret)) {
+    throw new Error(
+      'API secret must not begin or end with whitespace. HTTP strips it from the '
+        + 'header, so the service would compute a different hash than this one and '
+        + 'every request would be refused. Check for a stray space when pasting.',
+    );
+  }
   // Only the hash reaches stdout, so this tool never echoes the secret. It
   // cannot undo an argv-passed secret already being in `ps` and history —
   // hence the stdin form above.

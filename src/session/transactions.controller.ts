@@ -25,10 +25,23 @@ const bigintish = z.union([z.string().regex(/^\d+$/), z.number().int().nonnegati
 const MAX_PROVIDER_TEXT = 200;
 const MAX_SIMULATION_LOGS = 32;
 
-/** Provider-authored text: bounded before it reaches a caller. */
-function boundedProviderText(value: unknown): string {
+/**
+ * Provider-authored text: bounded before it reaches a caller.
+ *
+ * Slicing by UTF-16 index can cut a surrogate pair in half, and a revert reason
+ * is exactly the untrusted text likely to carry an emoji. A lone surrogate does
+ * not throw — `JSON.stringify` escapes it — so it ships and renders as a broken
+ * character at the other end. Cut on a code point instead.
+ */
+export function boundedProviderText(value: unknown): string {
   const text = typeof value === 'string' ? value : '';
-  return text.length > MAX_PROVIDER_TEXT ? `${text.slice(0, MAX_PROVIDER_TEXT)}…` : text;
+  if (text.length <= MAX_PROVIDER_TEXT) return text;
+
+  let end = MAX_PROVIDER_TEXT;
+  const tail = text.charCodeAt(end - 1);
+  // A high surrogate at the boundary owns the code unit after it.
+  if (tail >= 0xd800 && tail <= 0xdbff) end -= 1;
+  return `${text.slice(0, end)}…`;
 }
 
 const BuildBody = z.object({

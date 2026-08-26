@@ -36,7 +36,11 @@ describe('shipped-file-references', () => {
         continue; // binary or unreadable; nothing to reference
       }
       for (const [index, line] of contents.split('\n').entries()) {
-        if (/docs\/[A-Za-z0-9._-]+\.md/.test(line)) {
+        // Both forms point at a file the clone does not contain. Matching only
+        // the `docs/` prefix missed every citation that wrote the bare
+        // filename, which is most of them — the guard asserted the problem
+        // could not exist while instances of it sat in `src/`.
+        if (/docs\/[A-Za-z0-9._-]+\.md/.test(line) || /\b[A-Z][A-Za-z0-9_-]*\.md\b/.test(line)) {
           offenders.push(`${path}:${index + 1} ${line.trim()}`);
         }
       }

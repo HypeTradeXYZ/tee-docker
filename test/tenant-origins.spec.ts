@@ -42,4 +42,19 @@ describe('tenant origins', () => {
   ])('rejects %p', (origin) => {
     expect(parse([origin]).success).toBe(false);
   });
+
+  // Same dead-config class as an upper-case origin: the key is looked up by
+  // exact slug, so an unconstrained one is an endpoint that can never be used.
+  it.each([['Ethereum'], ['eth mainnet'], ['ETHEREUM']])(
+    'refuses an rpc map keyed by %p',
+    (key) => {
+      expect(TenantSchema.safeParse({ ...BASE, rpc: { [key]: 'https://a.example.com/x' } })
+        .success).toBe(false);
+    },
+  );
+
+  it('still accepts an rpc map keyed by a network slug', () => {
+    expect(TenantSchema.safeParse({ ...BASE, rpc: { ethereum: 'https://a.example.com/x' } })
+      .success).toBe(true);
+  });
 });
