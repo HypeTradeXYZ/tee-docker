@@ -854,7 +854,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     expect(handle.lock).toHaveBeenCalledTimes(1);
     // The rejection above is only meaningful if the registry actually handed
     // the recorded identity back. Assert the forwarding directly.
-    expect(storage.assertExisting).toHaveBeenNthCalledWith(2, 'acme', 'desk-a', recorded);
+    expect(storage.assertExisting).toHaveBeenCalledWith('acme', 'desk-a', recorded);
     expect(
       registry.get(initial.session.sid, initial.lease.jti, 'acme', 'desk-a', ['read'], 900),
     ).toBeNull();

@@ -335,10 +335,18 @@ function safeStack(exception: unknown): string | undefined {
   }
 }
 
-/** Relay capabilities are bearer authority even though they are loopback-only. */
-function redactForLog(value: string): string {
+/**
+ * Relay capabilities are bearer authority even though they are loopback-only.
+ *
+ * Case-insensitive on purpose: a redactor must be at least as permissive as
+ * whatever can produce the thing it redacts. `URL` preserves an upper-case
+ * scheme, so a capability that reached a log line as `HTTP://…` would slip past
+ * a lower-case-only pattern — and a redactor that misses is worse than none,
+ * because it is trusted.
+ */
+export function redactForLog(value: string): string {
   return value.replace(
-    /http:\/\/127\.0\.0\.1:\d+\/rpc\/[A-Za-z0-9_-]+/g,
+    /http:\/\/127\.0\.0\.1:\d+\/rpc\/[A-Za-z0-9_-]+/gi,
     '[rpc-relay]',
   );
 }
