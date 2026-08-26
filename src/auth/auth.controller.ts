@@ -157,7 +157,13 @@ function resolveScopes(requested: string[] | undefined, tenant: Tenant): string[
 
   const unknown = requested.filter((s) => !GRANTABLE_SCOPES.has(s));
   if (unknown.length > 0) {
-    throw new TeeError('TEE_INVALID_BODY', 'requested scopes are not supported');
+    // Name what was refused and what is on offer. The caller already knows the
+    // string they sent; withholding it only costs them the round trip. Names
+    // are rendered from the grantable set, never echoed from the request.
+    throw new TeeError(
+      'TEE_INVALID_BODY',
+      `requested scopes are not supported; grantable scopes are ${[...GRANTABLE_SCOPES].join(', ')}`,
+    );
   }
 
   // Export is refused at mint time when the tenant has no registered public

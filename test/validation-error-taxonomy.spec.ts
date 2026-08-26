@@ -199,7 +199,17 @@ describe('validation error taxonomy', () => {
       scopes: ['SECRET-unknown-scope'],
     })).rejects.toMatchObject({
       code: 'TEE_INVALID_BODY',
-      message: 'requested scopes are not supported',
+      message:
+        'requested scopes are not supported; grantable scopes are read, write, sign, export',
+    });
+    // The refusal names the grantable set, which is ours; it must never name
+    // the scope the caller asked for, which is theirs.
+    await expect(auth.token({ id: 'acme' } as never, {
+      workspace: 'desk-a',
+      password: 'password',
+      scopes: ['SECRET-unknown-scope'],
+    })).rejects.toMatchObject({
+      message: expect.not.stringContaining('SECRET'),
     });
     // L-10: an unsupported scope is pure validation, so it must not spend the
     // tenant's mint budget, which is shared with account unlock.
@@ -282,6 +292,9 @@ describe('validation error taxonomy', () => {
       'common/tee-error.ts',
       'session/account-slug.ts',
       'workspaces/workspace-paths.ts',
+      'workspaces/workspace-paths.ts',
+      // A third: a reserved name satisfies the grammar, so it is refused
+      // separately with a reason the caller can act on.
       'workspaces/workspace-paths.ts',
     ]);
   });

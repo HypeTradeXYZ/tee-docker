@@ -41,6 +41,20 @@ async function main() {
   if (!secret) {
     throw new Error('usage: hash-secret <api-secret>   (or pipe the secret on stdin)');
   }
+  // A secret is hashed here as UTF-8, but the service reads it out of an HTTP
+  // header, and headers decode as latin1. For anything outside ASCII the two
+  // encodings disagree, so whether such a secret authenticates depends on how
+  // the caller's HTTP client happens to serialize the header — it works from
+  // one client and fails from another, with a 401 that looks like a wrong key.
+  // Refuse to mint the ambiguity rather than leave it to be discovered later.
+  if (/[^\x20-\x7E]/.test(secret)) {
+    throw new Error(
+      'API secret must be printable ASCII (0x20-0x7E). Non-ASCII authenticates from '
+        + 'some HTTP clients and not others, because header values decode as latin1 '
+        + 'while this hash is UTF-8. Generate one with: '
+        + "node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64url'))\"",
+    );
+  }
   // Only the hash reaches stdout, so this tool never echoes the secret. It
   // cannot undo an argv-passed secret already being in `ps` and history —
   // hence the stdin form above.

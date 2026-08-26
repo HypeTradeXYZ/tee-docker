@@ -9,6 +9,9 @@
     "To enable export, rename _exportPublicKey and set a real value:",
     "  \"exportPublicKey\": \"x25519:<43 base64 chars>=\"",
     "The underscore keeps the marker inert, so export stays off until you opt in.",
+    "_origins lists the browser origins allowed to read this tenant's responses.",
+    "Rename it to origins to switch browser access on; entries must be lower case,",
+    "scheme://host[:port] with no path or trailing slash, or the boot is refused.",
     "The same underscore trick applies to _rpc: every endpoint listed under a real",
     "rpc key is resolved at startup, and a placeholder host that does not resolve",
     "refuses the boot. Rename _rpc once the URLs are real ones."
@@ -39,7 +42,11 @@
         "solana": "https://rpc.example.com/sol"
       },
 
-      "allowDefaultRpc": true
+      "allowDefaultRpc": true,
+
+      "_origins": [
+        "https://app.example.com"
+      ]
     }
   ]
 }

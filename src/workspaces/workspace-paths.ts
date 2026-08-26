@@ -1,14 +1,21 @@
 import { resolve, sep } from 'node:path';
 import { TeeError } from '../common/tee-error';
-import { SLUG_RE } from '../config/schemas';
+import { RESERVABLE_BY_GRAMMAR, RESERVED_SLUGS, SLUG_RE } from '../config/schemas';
 
-/** Slugs that would be confusing or dangerous as directory names. */
-const RESERVED = new Set(['.', '..', 'con', 'prn', 'aux', 'nul', 'node_modules']);
+const GRAMMAR = 'lowercase letters, digits and hyphens; must start alphanumeric; max 63 chars';
 
 export function assertValidSlug(slug: unknown): string {
-  if (typeof slug !== 'string' || !SLUG_RE.test(slug) || RESERVED.has(slug)) {
+  // A reserved name satisfies the grammar, so reporting the grammar back would
+  // describe a rule the caller already met — an error they cannot act on.
+  // Name the real reason instead.
+  if (typeof slug === 'string' && SLUG_RE.test(slug) && RESERVED_SLUGS.has(slug)) {
+    throw new TeeError('TEE_INVALID_SLUG', 'slug is reserved and cannot be used', {
+      expected: `${GRAMMAR}; and not one of: ${RESERVABLE_BY_GRAMMAR.join(', ')}`,
+    });
+  }
+  if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
     throw new TeeError('TEE_INVALID_SLUG', 'workspace slug must be a lowercase slug', {
-      expected: 'lowercase letters, digits and hyphens; must start alphanumeric; max 63 chars',
+      expected: GRAMMAR,
     });
   }
   return slug;

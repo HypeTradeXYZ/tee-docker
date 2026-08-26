@@ -125,4 +125,36 @@ describe('hash-secret helper (L-08)', () => {
     expect(stderr).toContain('TEE_SECRET_HMAC_KEY is not set');
     expect(stderr).not.toContain('sk_never_echo_me');
   });
+
+  // The service reads the secret out of an HTTP header, which decodes as
+  // latin1, while this helper hashes as UTF-8. Outside ASCII the two disagree,
+  // so whether such a secret authenticates depends on the caller's HTTP client.
+  // The helper refuses to mint that ambiguity rather than leave it to be found
+  // later as a 401 that looks like a wrong key.
+  it('refuses a non-ASCII secret, and does not echo it', () => {
+    const env = { ...process.env, TEE_SECRET_HMAC_KEY: 'a1'.repeat(16) };
+    let stderr = '';
+    try {
+      execFileSync('node', [join(ROOT, 'scripts/hash-secret.mjs'), 'café-sécret'], {
+        env,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      throw new Error('expected a failure');
+    } catch (err) {
+      stderr = String((err as { stderr?: string }).stderr ?? '');
+    }
+    expect(stderr).toContain('printable ASCII');
+    expect(stderr).not.toContain('café-sécret');
+  });
+
+  it('still accepts every printable ASCII character, including spaces', () => {
+    const key = 'a1'.repeat(16);
+    const secret = 'a passphrase with spaces and ~!@#$%^&*()_+ symbols';
+    const out = execFileSync('node', [join(ROOT, 'scripts/hash-secret.mjs'), secret], {
+      env: { ...process.env, TEE_SECRET_HMAC_KEY: key },
+      encoding: 'utf8',
+    }).trim();
+    expect(out).toBe(hashApiSecret(secret, Buffer.from(key, 'hex')));
+  });
 });

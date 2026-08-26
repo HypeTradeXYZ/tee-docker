@@ -4,9 +4,29 @@ import { SECRET_HASH_RE } from '../auth/secret';
 /** Tenant ids and workspace slugs become path components — keep them boring. */
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
+/**
+ * Slugs that would be confusing or dangerous as directory names.
+ *
+ * `.`, `..` and `node_modules` are already excluded by the grammar; they stay
+ * listed so this reads as the complete intent rather than the remainder the
+ * regex happens to leave.
+ */
+export const RESERVED_SLUGS = new Set(['.', '..', 'con', 'prn', 'aux', 'nul', 'node_modules']);
+
+/** The reserved names a caller can actually trip, i.e. those the grammar admits. */
+export const RESERVABLE_BY_GRAMMAR = [...RESERVED_SLUGS].filter((name) => SLUG_RE.test(name));
+
 // A browser sends scheme://host[:port] and nothing else, so anything carrying a
 // path, a wildcard or credentials could never match one and is a config error.
-export const ORIGIN_RE = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/i;
+//
+// Case-sensitive on purpose. A browser lower-cases the scheme and host when it
+// serializes an Origin, and the allowlist is matched by exact string, so an
+// entry carrying an upper-case letter can never match anything and would sit in
+// the config looking effective. Refusing it at boot is the same bargain the
+// rest of this file makes: an operator finds out while they are still editing,
+// rather than from a browser failing silently in production. Normalizing it
+// instead would quietly turn a dead entry into a live grant on upgrade.
+export const ORIGIN_RE = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/;
 
 // Ten years. Bounded so `now + ttl * 1000` stays inside the Date range: a
 // larger value is schema-valid but makes toISOString() throw a RangeError on
@@ -26,7 +46,17 @@ export const LimitsSchema = z.object({
 });
 
 export const TenantSchema = z.object({
-  id: z.string().regex(SLUG_RE, 'tenant id must be a lowercase slug'),
+  // A tenant id becomes a directory name, so it is held to the same reserved
+  // list as a workspace slug. Without this the service boots clean and then
+  // refuses every workspace create and token mint with a message about the
+  // *workspace* slug — pointing the operator at a caller's correct input
+  // instead of at their own configuration.
+  id: z
+    .string()
+    .regex(SLUG_RE, 'tenant id must be a lowercase slug')
+    .refine((id) => !RESERVED_SLUGS.has(id), {
+      message: `tenant id must not be a reserved name (${RESERVABLE_BY_GRAMMAR.join(', ')})`,
+    }),
   apiKey: z.string().min(16),
   /** HMAC-SHA256 of the API secret. Not a slow KDF — see DESIGN.md §10. */
   secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),
@@ -42,7 +72,13 @@ export const TenantSchema = z.object({
   allowDefaultRpc: z.boolean().optional(),
   /** Browser origins allowed to read this tenant's responses. Absent allows none. */
   origins: z
-    .array(z.string().regex(ORIGIN_RE, 'expected an origin like https://app.example.com'))
+    .array(
+      z.string().regex(
+        ORIGIN_RE,
+        'expected a lower-case origin like https://app.example.com — scheme and host'
+          + ' must be lower case, with no path, wildcard, credentials or trailing slash',
+      ),
+    )
     .optional(),
 });
 

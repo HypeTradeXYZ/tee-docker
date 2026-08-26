@@ -33,6 +33,12 @@ describe('tenant origins', () => {
     ['app.example.com'],
     ['ftp://app.example.com'],
     [''],
+    // A browser lower-cases scheme and host when it serializes an Origin, and
+    // the allowlist is matched by exact string — so an upper-case entry is
+    // config that can never match, which is the whole point of this list.
+    ['https://APP.example.com'],
+    ['HTTPS://app.example.com'],
+    ['https://Sub.Example.com'],
   ])('rejects %p', (origin) => {
     expect(parse([origin]).success).toBe(false);
   });
