@@ -96,10 +96,21 @@ describe('workspace creation limiter admission', () => {
   });
 
   it('can refund only a pre-core state-commit failure', () => {
+    // The second refund must be a no-op. Calling it against an already-empty
+    // bucket cannot show that: the refund short-circuits on the missing key
+    // whether or not the latch exists. Re-charge in between so a second refund
+    // would cancel a DIFFERENT, later charge — which is the bug the latch is
+    // there to prevent, since both charges carry the same clock value.
     const refund = limiter.admit('acme');
     refund();
-    refund();
-    limiter.admit('acme');
+
+    limiter.admit('acme'); // a new charge, same tick, same bucket slot
+    refund(); // must not touch it
+
+    // maxPerMinute is 2, and exactly one live charge should remain.
     expect(() => limiter.admit('acme')).not.toThrow();
+    expect(() => limiter.admit('acme')).toThrow(
+      expect.objectContaining({ code: 'TEE_WORKSPACE_CREATE_RATE' }),
+    );
   });
 });

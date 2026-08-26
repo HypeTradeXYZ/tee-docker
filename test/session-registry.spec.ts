@@ -790,15 +790,26 @@ describe('SessionRegistry storage identity and admission ordering', () => {
       accounts: [],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
-    const identity = { device: 1, inode: 1, realPath: '/test/workspace' };
-    const changed = { ...identity, inode: 2 };
-    let existingChecks = 0;
+    // What is on disk now.
+    const onDisk = { device: 1, inode: 1, realPath: '/test/workspace' };
+    // What the singleton recorded when it opened. The two disagree, which is
+    // the whole point: the registry must carry the recorded value back so the
+    // storage layer can notice. Driving the rejection off a call counter would
+    // pass even if the registry forwarded nothing at all.
+    const recorded = { ...onDisk, inode: 2 };
     const storage = {
-      assertExisting: jest.fn(async () => {
-        existingChecks += 1;
-        if (existingChecks === 1) return identity;
-        throw Object.assign(new Error('storage changed'), { code: 'PROVIDER_IO' });
-      }),
+      assertExisting: jest.fn(
+        async (
+          _tenantId: string,
+          _slug: string,
+          expected?: { device: number; inode: number; realPath: string },
+        ) => {
+          if (expected && expected.inode !== onDisk.inode) {
+            throw Object.assign(new Error('storage changed'), { code: 'PROVIDER_IO' });
+          }
+          return onDisk;
+        },
+      ),
       openExisting: async (
         _tenantId: string,
         _slug: string,
@@ -808,7 +819,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
           storageIdentity: { device: number; inode: number; realPath: string },
         ) => void,
       ) => {
-        onOpened(handle, changed.inode === 2 ? identity : changed);
+        onOpened(handle, recorded);
         return handle;
       },
     } as unknown as WorkspaceStorageService;
@@ -841,6 +852,9 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     expect(registry.leaseCount).toBe(0);
     expect(registry.size).toBe(0);
     expect(handle.lock).toHaveBeenCalledTimes(1);
+    // The rejection above is only meaningful if the registry actually handed
+    // the recorded identity back. Assert the forwarding directly.
+    expect(storage.assertExisting).toHaveBeenNthCalledWith(2, 'acme', 'desk-a', recorded);
     expect(
       registry.get(initial.session.sid, initial.lease.jti, 'acme', 'desk-a', ['read'], 900),
     ).toBeNull();

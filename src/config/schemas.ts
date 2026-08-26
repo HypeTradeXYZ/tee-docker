@@ -51,12 +51,22 @@ export const TenantSchema = z.object({
   // refuses every workspace create and token mint with a message about the
   // *workspace* slug — pointing the operator at a caller's correct input
   // instead of at their own configuration.
-  id: z
-    .string()
-    .regex(SLUG_RE, 'tenant id must be a lowercase slug')
-    .refine((id) => !RESERVED_SLUGS.has(id), {
-      message: `tenant id must not be a reserved name (${RESERVABLE_BY_GRAMMAR.join(', ')})`,
-    }),
+  // Chained checks all run, so a `.regex().refine()` pair would report BOTH a
+  // grammar failure and a reserved-name failure for `node_modules` — handing
+  // the operator a reserved list that does not contain what they wrote. One
+  // check, one reason.
+  id: z.string().superRefine((id, ctx) => {
+    if (!SLUG_RE.test(id)) {
+      ctx.addIssue({ code: 'custom', message: 'tenant id must be a lowercase slug' });
+      return;
+    }
+    if (RESERVED_SLUGS.has(id)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `tenant id must not be a reserved name (${RESERVABLE_BY_GRAMMAR.join(', ')})`,
+      });
+    }
+  }),
   apiKey: z.string().min(16),
   /** HMAC-SHA256 of the API secret. Not a slow KDF — see DESIGN.md §10. */
   secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),

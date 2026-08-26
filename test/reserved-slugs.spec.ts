@@ -75,5 +75,16 @@ describe('reserved-slugs', () => {
       expect(parsed.success).toBe(false);
       expect(JSON.stringify(parsed.error?.issues)).toContain('lowercase slug');
     });
+
+    // A reserved name the GRAMMAR also rejects must report the grammar only.
+    // Reporting both would hand the operator a reserved list that does not
+    // contain what they wrote — the same unactionable error this batch set out
+    // to remove, just relocated to boot.
+    it.each(['node_modules', '.', '..'])('reports one reason for %p', (id) => {
+      const parsed = TenantSchema.safeParse({ ...BASE, id });
+      expect(parsed.success).toBe(false);
+      const messages = (parsed.error?.issues ?? []).map((issue) => issue.message);
+      expect(messages).toEqual(['tenant id must be a lowercase slug']);
+    });
   });
 });

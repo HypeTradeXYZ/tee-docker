@@ -28,10 +28,18 @@ describe('cors-flow', () => {
 
       expect(res.status).toBeLessThan(300);
       expect(res.headers['access-control-allow-origin']).toBe(ALLOWED);
-      const allowedHeaders = String(res.headers['access-control-allow-headers']).toLowerCase();
-      for (const header of ['authorization', 'content-type', 'x-api-key', 'x-api-secret', 'x-request-id']) {
-        expect(allowedHeaders).toContain(header);
-      }
+      const allowedHeaders = String(res.headers['access-control-allow-headers'])
+        .toLowerCase()
+        .split(',')
+        .map((header) => header.trim())
+        .sort();
+      expect(allowedHeaders).toEqual([
+        'authorization',
+        'content-type',
+        'x-api-key',
+        'x-api-secret',
+        'x-request-id',
+      ]);
       // Exact set, not `toContain` per method: a containment check passes just
       // as happily when a method is added or dropped, which is the drift worth
       // catching. OPTIONS is advertised because the preflight is itself OPTIONS.
@@ -61,13 +69,20 @@ describe('cors-flow', () => {
       expect(res.headers['access-control-allow-origin']).toBeUndefined();
     });
 
-    it('exposes the three headers a caller is documented to read', async () => {
+    it('exposes the three headers a caller is documented to read, and no others', async () => {
       const res = await http().get('/v1/health').set('origin', ALLOWED).expect(200);
       expect(res.headers['access-control-allow-origin']).toBe(ALLOWED);
-      const exposed = String(res.headers['access-control-expose-headers']).toLowerCase();
-      for (const header of ['x-request-id', 'retry-after', 'x-rpc-source']) {
-        expect(exposed).toContain(header);
-      }
+      // Exact set for the same reason the methods are: containment passes just
+      // as happily when a fourth header is added, and this list decides what a
+      // cross-origin script may read. `toContain` on a string is also substring
+      // matching, so `x-request-id-internal` would satisfy a check for
+      // `x-request-id` — the drift is invisible twice over.
+      const exposed = String(res.headers['access-control-expose-headers'])
+        .toLowerCase()
+        .split(',')
+        .map((header) => header.trim())
+        .sort();
+      expect(exposed).toEqual(['retry-after', 'x-request-id', 'x-rpc-source']);
     });
 
     it('never allows credentials, because nothing here reads a cookie', async () => {

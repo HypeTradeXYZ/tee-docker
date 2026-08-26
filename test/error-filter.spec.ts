@@ -6,6 +6,7 @@ import { ErrorFilter } from '../src/common/error.filter';
 import { ErrorMapService } from '../src/config/error-map.service';
 import { ErrorsConfigSchema } from '../src/config/schemas';
 import { TeeError, teeCoreError } from '../src/common/tee-error';
+import { markReviewedMessage } from '../src/common/reviewed-message';
 
 describe('reviewed transaction/RPC error rendering', () => {
   const config = ErrorsConfigSchema.parse(
@@ -471,11 +472,12 @@ describe('brand cannot arrive by inheritance (R-03 adversary)', () => {
     expect(JSON.stringify(render(forged))).not.toContain('CANARY_');
   });
 
-  it('rejects a brand inherited via setPrototypeOf', () => {
-    const forged = new TeeError('TEE_INVALID_BODY', LEAK);
+  it('rejects a brand reachable only through the prototype chain', () => {
+    // The brand is checked as an OWN property, which treats `Object.create` and
+    // `setPrototypeOf` identically — there is no separately reachable vector to
+    // test here, so this covers the inherited path once rather than staging a
+    // second forgery that exercises the same line.
     const donor = new TeeError('TEE_INVALID_BODY', 'legit');
-    Object.setPrototypeOf(forged, donor);
-    // Its own brand is genuine, so prove the inherited path specifically.
     const hostile = Object.create(donor) as { message: string };
     hostile.message = LEAK;
     expect(JSON.stringify(render(hostile))).not.toContain('CANARY_');
@@ -488,8 +490,11 @@ describe('brand cannot arrive by inheritance (R-03 adversary)', () => {
 
   it('stays opaque rather than throwing when the target is frozen', () => {
     // markReviewedMessage must not turn a reviewed 4xx into a 500 if a
-    // dependency ever freezes its error objects.
+    // dependency ever freezes its error objects. `render` only READS the brand,
+    // so exercise the marking step directly — otherwise this passes for the
+    // wrong reason and the try/catch inside it could be deleted unnoticed.
     const frozen = Object.freeze(new WativeError('PARAMETER_ERROR' as never, LEAK));
+    expect(() => markReviewedMessage(frozen)).not.toThrow();
     expect(() => render(frozen)).not.toThrow();
     expect(JSON.stringify(render(frozen))).not.toContain('CANARY_');
   });
