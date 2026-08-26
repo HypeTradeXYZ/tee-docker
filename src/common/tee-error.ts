@@ -11,6 +11,12 @@ import { markReviewedMessage } from './reviewed-message';
  * gracefully on a miss, but a miss is still a bug — the error map refuses to
  * construct without full coverage, and `flows/error-map.flow.spec.ts` asserts it,
  * so a new code cannot ship unmapped.
+ *
+ * A new code also has to reach the published documentation, which is a separate
+ * repository and cannot notice on its own. It vendors the public code list and
+ * fails its build when one is undocumented; refresh that copy in the same pass:
+ *
+ *   pnpm vendor:errors   (run in the documentation repository)
  */
 export const TEE_ERROR_CODES = [
   'TEE_BAD_API_KEY',

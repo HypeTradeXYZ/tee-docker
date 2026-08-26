@@ -11,7 +11,14 @@ import { boot, type Harness } from './harness/boot';
  * where the change is being made, instead of silently in someone's client.
  *
  * Intentional changes are adopted with UPDATE_ROUTE_MANIFEST=1, which rewrites
- * the fixture. Doing so is the reminder to update the docs in the same pass.
+ * the fixture. Doing so is the reminder to update the docs in the same pass —
+ * the documentation site vendors a copy of this fixture and gates against it, so
+ * a route added here is not published until that copy is refreshed:
+ *
+ *   pnpm vendor:routes   (run in the documentation repository)
+ *
+ * Its gate verifies the vendored copy against a stamp on every deploy, so a
+ * stale copy cannot be quietly edited into agreement.
  */
 
 const MANIFEST = join(__dirname, 'fixtures', 'route-manifest.json');
