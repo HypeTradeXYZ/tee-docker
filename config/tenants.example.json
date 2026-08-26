@@ -3,12 +3,15 @@
     "Copy to tenants.json and edit by hand. tenants.json is gitignored.",
     "secretHash is exactly 64 hexadecimal HMAC-SHA256 characters of the API secret",
     "under the server key (hex letter case is ignored) — not a",
-    "slow KDF. See docs/DESIGN.md §10 for why.",
+    "slow KDF, which is why the service refuses to start on an unsafe backend.",
     "exportPublicKey is the X25519 recipient a tenant's exports are sealed to.",
     "A tenant without one cannot export, because there is no key to encrypt to.",
     "To enable export, rename _exportPublicKey and set a real value:",
     "  \"exportPublicKey\": \"x25519:<43 base64 chars>=\"",
-    "The underscore keeps the marker inert, so this file boots as copied."
+    "The underscore keeps the marker inert, so export stays off until you opt in.",
+    "The same underscore trick applies to _rpc: every endpoint listed under a real",
+    "rpc key is resolved at startup, and a placeholder host that does not resolve",
+    "refuses the boot. Rename _rpc once the URLs are real ones."
   ],
 
   "tenants": [
@@ -31,7 +34,7 @@
         "accountAbsoluteSec": 300
       },
 
-      "rpc": {
+      "_rpc": {
         "ethereum": "https://rpc.example.com/eth",
         "solana": "https://rpc.example.com/sol"
       },

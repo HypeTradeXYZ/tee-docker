@@ -67,7 +67,7 @@ COPY config/errors.json ./config/errors.json
 # chmods it to 0700, which requires ownership. Creating them here as `node`
 # means a named volume inherits the right owner. A BIND mount does not - the
 # host directory keeps its own ownership, so it must be chown 1000:1000
-# before first start or boot fails with EPERM. See docs/DEPLOY.md.
+# before first start, or boot fails with EPERM.
 # 0700, not the umask default. `mkdir -p` under the build's umask 022 yields
 # 0755, and the data root holds the ENCRYPTED WALLET SEEDS — the service
 # hardens its own state directory to 0700 at boot but never touches this one,

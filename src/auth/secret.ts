@@ -9,7 +9,7 @@ export const SECRET_HASH_RE = /^[0-9a-f]{64}$/i;
  * Argon2 exists to make low-entropy human passwords expensive to brute-force.
  * An API secret is high-entropy machine-generated material, so brute force is
  * already infeasible and a slow KDF would only add cost to the hottest path in
- * the service. See docs/DESIGN.md §10.
+ * the service.
  */
 export function hashApiSecret(secret: string, serverKey: Buffer): string {
   return createHmac('sha256', serverKey).update(secret, 'utf8').digest('hex');

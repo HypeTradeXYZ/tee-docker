@@ -254,10 +254,16 @@ describe('RPC egress boundary', () => {
     }
   });
 
+  // Both bodies are VALID JSON that is merely too big. An unparseable body would
+  // be refused by the JSON.parse at the end of the success path whether or not a
+  // size guard existed, so a malformed oversized body cannot tell the two apart
+  // — it proves only "garbage upstream is a 502". These payloads fail solely on
+  // length, so deleting either guard turns this red.
   it('rejects declared and streamed oversized responses', async () => {
+    const oversizedJson = `{"jsonrpc":"2.0","id":1,"result":"${'a'.repeat(1024 * 1024)}"}`;
     for (const reply of [
-      { headers: { 'content-length': String(1024 * 1024 + 1) }, body: '' },
-      { body: Buffer.alloc(1024 * 1024 + 1, 0x20) },
+      { headers: { 'content-length': String(oversizedJson.length) }, body: oversizedJson },
+      { body: Buffer.from(oversizedJson, 'utf8') },
     ]) {
       const service = boundary(
         async () => [{ address: '8.8.8.8', family: 4 }],

@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { describeBodyIssues, invalidBodyMessage } from '../src/common/invalid-body';
 import { MAX_PUBLIC_MESSAGE } from '../src/common/reviewed-message';
@@ -94,12 +96,27 @@ describe('invalid-body-message', () => {
       expect(result).toBe(expected);
     });
 
+    // Derived from the controllers rather than transcribed, so a route whose
+    // expected-shape text grows past the budget fails here instead of silently
+    // losing its field detail in production. The previous version of this test
+    // hand-copied one literal while claiming to check them all.
     it('keeps every real route message renderable', () => {
-      const expected =
-        'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword? }';
-      const result = invalidBodyMessage(expected, failure({}), {});
-      expect(result.length).toBeLessThanOrEqual(MAX_PUBLIC_MESSAGE);
-      expect(result).toContain('is required');
+      const controllers = join(__dirname, '..', 'src');
+      const sources = readdirSync(controllers, { recursive: true, encoding: 'utf8' })
+        .filter((f) => f.endsWith('.ts'))
+        .map((f) => readFileSync(join(controllers, f), 'utf8'));
+      const expectedShapes = sources
+        .flatMap((src) => [...src.matchAll(/invalidBodyMessage\(\s*\n?\s*'([^']+)'/g)])
+        .map((m) => m[1]);
+
+      // If this ever reads zero, the regex has drifted and the test is vacuous.
+      expect(expectedShapes.length).toBeGreaterThanOrEqual(8);
+
+      for (const expected of expectedShapes) {
+        const result = invalidBodyMessage(expected, failure({}), {});
+        expect(result.length).toBeLessThanOrEqual(MAX_PUBLIC_MESSAGE);
+        expect(result).toContain('is required');
+      }
     });
   });
 });

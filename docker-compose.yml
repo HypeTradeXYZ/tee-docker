@@ -2,7 +2,7 @@
 #
 # Why Compose rather than a Dokploy Application: exactly one instance may hold
 # a given TEE_STATE_DIR, and the lock is never reclaimed automatically (see
-# docs/OPERATIONS.md). Compose recreates a changed service stop-then-start, so
+# the operator runbook). Compose recreates a changed service stop-then-start, so
 # a redeploy hands the lock over cleanly. A Swarm service's default rolling
 # update starts the replacement before stopping the old one, which would meet a
 # held lock and crash-loop until someone deleted the lock file by hand.
@@ -10,7 +10,7 @@
 # Set TEE_SECRET_HMAC_KEY in Dokploy's Environment tab. Everything else is
 # literal here. Dokploy's Compose Type MUST be `docker compose`, not Stack:
 # Swarm ignores `build:` and restores the rolling update this design avoids.
-# See docs/DEPLOY.md for first-boot preparation of /opt/tee-docker.
+# The host paths below must exist and be owned by uid 1000 before first start.
 
 services:
   tee-docker:
@@ -83,7 +83,7 @@ services:
     # These directories must exist and be owned by uid 1000 before the first
     # start. Docker silently creates a missing bind-mount source as root, and
     # the service chmods its state directory to 0700 on boot, which requires
-    # ownership. See docs/DEPLOY.md.
+    # ownership: create these as uid 1000 before the first start.
     volumes:
       - /opt/tee-docker/state:/var/lib/tee-docker/state
       - /opt/tee-docker/data:/var/lib/tee-docker/data

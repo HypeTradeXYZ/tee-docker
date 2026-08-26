@@ -23,7 +23,7 @@ module.exports = {
   // Flows boot a real Nest app and touch the filesystem — never run them
   // concurrently against a shared data root.
   maxWorkers: 1,
-  // One long-lived worker runs all 51 suites, so leaked module state and
+  // One long-lived worker runs every suite, so leaked module state and
   // retained fixtures accumulate until the default heap aborts the run.
   // Recycle the worker when it gets heavy; see AUDIT-FINDINGS R-04.
   workerIdleMemoryLimit: '1GB',

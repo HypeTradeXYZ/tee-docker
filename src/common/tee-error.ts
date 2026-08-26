@@ -8,8 +8,9 @@ import { markReviewedMessage } from './reviewed-message';
  * runtime, so never treat the prefix as proof of authorship.
  *
  * Every code here MUST have an entry in config/errors.json. The filter degrades
- * gracefully on a miss, but a miss is still a bug — `errors.spec.ts` asserts
- * full coverage so a new code cannot ship unmapped.
+ * gracefully on a miss, but a miss is still a bug — the error map refuses to
+ * construct without full coverage, and `flows/error-map.flow.spec.ts` asserts it,
+ * so a new code cannot ship unmapped.
  */
 export const TEE_ERROR_CODES = [
   'TEE_BAD_API_KEY',
