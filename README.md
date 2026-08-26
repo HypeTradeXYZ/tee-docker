@@ -196,6 +196,13 @@ Two things catch integrators out:
   equal the chain being signed for — the `chainId` you send, or, when you send none, the chain the
   address itself is on. A disagreement is refused as `chain_id_mismatch` naming both values, and
   sending `chainId` equal to `domain.chainId` avoids the question entirely.
+- **Mixed-case addresses are checksum-checked.** Any address inside the payload —
+  `domain.verifyingContract` and every `address`-typed field — must be all-lowercase, all-uppercase,
+  or correctly [EIP-55](https://eips.ethereum.org/EIPS/eip-55) checksummed. A mixed-case address
+  whose checksum does not match is refused as `invalid_parameter`. Worth knowing:
+  `0xCcCcccccCCCCcCCCCCCCcCcCccccCCCCCCcccccC`, the example `verifyingContract` printed in the
+  EIP-712 specification itself, is *not* valid EIP-55 and is rejected. Lowercase it, or use the
+  checksummed form `0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC`.
 
 `primaryType` must exactly name one of the structs in `types`; matching is case-sensitive. An
 `EIP712Domain` entry in `types` is accepted and ignored, as are struct types you do not reference.
