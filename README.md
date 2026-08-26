@@ -7,6 +7,9 @@ and optional encrypted key export.
 This guide is for application developers, integrators, operators, and reviewers. You do NOT need
 to understand wallet storage internals to use the service.
 
+Full documentation — every route, every error code, deployment and browser access — is published at
+[tee.hypetrade.xyz](https://tee.hypetrade.xyz). This README is the short version.
+
 ## The basic idea
 
 - A **tenant** is a team or application with its own API credentials and usage limits.
