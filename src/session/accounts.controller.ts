@@ -32,10 +32,10 @@ const CreateAccount = z.object({
   hasOwnPassword: z.boolean().optional(),
   /** Required when hasOwnPassword is set; otherwise the flag grants nothing. */
   accountPassword: z.string().min(1).max(256).optional(),
-});
+}).strict();
 
-const DeriveWallets = z.object({ count: z.number().int().positive().max(500) });
-const ImportKey = z.object({ privateKey: z.string().min(1) });
+const DeriveWallets = z.object({ count: z.number().int().positive().max(500) }).strict();
+const ImportKey = z.object({ privateKey: z.string().min(1) }).strict();
 const SetTags = z.object({ tags: z.array(z.string()).max(32) }).strict();
 
 @Controller('accounts')

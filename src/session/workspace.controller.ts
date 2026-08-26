@@ -16,7 +16,7 @@ import type { Tenant } from '../config/schemas';
 import { parseNetworkSelector } from './network-selector';
 import { damagedAccountSlugs } from './damaged-accounts';
 
-const UnlockBody = z.object({ accountPassword: z.string().min(1) });
+const UnlockBody = z.object({ accountPassword: z.string().min(1) }).strict();
 
 interface AssetView {
   id: number;

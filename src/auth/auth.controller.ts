@@ -27,7 +27,7 @@ const TokenBody = z.object({
   password: z.string().min(1),
   // Bounded so an oversized array cannot buy CPU on the uncharged path.
   scopes: z.array(z.string().max(32)).min(1).max(GRANTABLE_SCOPES.size).optional(),
-});
+}).strict();
 const RefreshBody = z.object({}).strict();
 
 @Controller('auth')

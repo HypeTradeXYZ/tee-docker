@@ -46,7 +46,7 @@ const BuildBody = z.object({
   amount: bigintish.optional(),
   tokenMint: z.string().optional(),
   recentBlockhash: z.string().optional(),
-});
+}).strict();
 
 const toBig = (v: string | number | undefined): bigint | undefined =>
   v === undefined ? undefined : BigInt(v);

@@ -21,7 +21,7 @@ import { assertValidSlug } from './workspace-paths';
 const CreateBody = z.object({
   slug: z.string(),
   password: z.string().min(1),
-});
+}).strict();
 
 @Controller()
 @UseGuards(TenantGuard)

@@ -11,13 +11,13 @@ const SignMessage = z.object({
   address: z.string().min(1).max(128),
   message: z.string(),
   encoding: z.enum(['personal_sign', 'raw', 'ed25519']).optional(),
-});
+}).strict();
 
 const SignTypedData = z.object({
   address: z.string().min(1).max(128),
   typedData: z.unknown(),
   chainId: z.number().int().positive().optional(),
-});
+}).strict();
 
 /** One EIP-712 struct field. Loose: core accepts a field carrying extra keys. */
 const Eip712Field = z.looseObject({ name: z.string().min(1), type: z.string().min(1) });

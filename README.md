@@ -153,8 +153,10 @@ When exporting a private key, add `?vm=evm` or `?vm=svm`; the response repeats t
 
 ### Messages
 
-`POST /sign/message` takes `{ address, message, encoding? }`. The `message` field is always read as
-a UTF-8 string — the text `"0xdeadbeef"` is signed as those ten characters, never as four bytes.
+`POST /sign/message` takes `{ address, message, encoding? }`. How `message` is read depends on the
+encoding, and getting this backwards produces a valid signature over the wrong bytes:
+every encoding except `raw` reads it as UTF-8 text, so `"0xdeadbeef"` is signed as those ten
+characters; `raw` decodes it as hex, so the same string is signed as the four bytes it spells.
 
 | `encoding` | Address kind | What is signed |
 |---|---|---|
@@ -188,7 +190,7 @@ as the standard `eth_signTypedData_v4` **object**:
 }
 ```
 
-Two things catch integrators out:
+Four things catch integrators out:
 
 - **Send an object, not a string.** The `eth_signTypedData_v4` JSON-RPC method carries the payload
   already stringified in its second parameter. Forwarding that parameter as-is is rejected.
@@ -204,9 +206,17 @@ Two things catch integrators out:
   EIP-712 specification itself, is *not* valid EIP-55 and is rejected. Lowercase it, or use the
   checksummed form `0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC`.
 
-`primaryType` must exactly name one of the structs in `types`; matching is case-sensitive. An
-`EIP712Domain` entry in `types` is accepted and ignored, as are struct types you do not reference.
-The response returns the `signature` with the `domainSeparator` and `structHash` it was built from.
+- **An `EIP712Domain` entry in `types` must match your `domain` exactly.** It is not ignored. If
+  the list names a field your `domain` omits, or omits one your `domain` sets, the payload is
+  refused as `invalid_parameter`. An absent or empty list is fine. This matters because a real
+  `eth_signTypedData_v4` payload always carries a populated list, so it has to travel with the
+  domain it describes.
+
+`primaryType` must exactly name one of the structs in `types`; matching is case-sensitive. Struct
+types you never reference are ignored. The `domain` itself accepts only `name`, `version`,
+`chainId`, `verifyingContract` and `salt` — an unknown key, or a mis-cased one such as `chainID`,
+is refused as `invalid_parameter`. The response returns the `signature` with the `domainSeparator`
+and `structHash` it was built from.
 
 ## Common responses
 
@@ -234,8 +244,13 @@ Common situations include expired tokens (`session_expired`), missing permission
 For invalid requests, `invalid_slug` means a workspace or account ID has invalid syntax,
 `invalid_body` means the JSON shape or field combination is wrong, and `invalid_parameter` means
 a path or query selector is malformed. `unsupported_for_kind` means the selected account, wallet,
-or chain type cannot perform that otherwise valid operation. `chain_id_mismatch` means a typed-data
-domain named a different chain than the one being signed for; see the signing notes below.
+or chain type cannot perform that otherwise valid operation.
+
+Request bodies reject fields they do not recognise, and the message names the offending key —
+`unexpected field "scope"`. A misspelled field is a request the service would otherwise have
+carried out with that field missing, so it fails rather than being quietly dropped. The one
+exception is `typedData`, which is passed through as the signing engine defines it. `chain_id_mismatch` means a typed-data
+domain named a different chain than the one being signed for; see the signing notes above.
 
 Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
 check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may
