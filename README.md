@@ -273,6 +273,7 @@ rather than `pending`, so a failing endpoint is never mistaken for a transaction
 ## Useful commands
 
 ```bash
+pnpm check-config # check config/tenants.json before deploying it
 pnpm start:dev   # run locally and reload after changes
 pnpm typecheck   # check TypeScript
 pnpm test        # run tests
