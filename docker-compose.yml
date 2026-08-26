@@ -98,7 +98,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3000/v1/health').then(r=>r.json()).then(j=>process.exit(j.status==='ok'?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/v1/health').then(r=>r.json()).then(j=>process.exit(j.status==='ok'?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s
@@ -113,6 +113,10 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
+      # Must match the container's PORT. Compose substitutes labels from the host
+      # environment, not from this service's `environment:` block, so this cannot
+      # follow PORT on its own — change both together or the proxy routes to a
+      # port nothing is listening on, while the service itself stays healthy.
       - traefik.http.services.tee-docker.loadbalancer.server.port=3000
 
       - traefik.http.routers.tee-docker-web.rule=Host(`${TEE_API_HOST:-tee-api.hypetrade.xyz}`)
