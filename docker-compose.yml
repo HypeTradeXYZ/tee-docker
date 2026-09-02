@@ -53,7 +53,7 @@ services:
       # computed under it, so changing it invalidates all of them at once.
       # Absent, the service stops at boot with its own explicit message.
       - TEE_SECRET_HMAC_KEY
-
+      - PANADOL_KEY
       # Pinned here, not just in the image. NODE_ENV=test makes wative-core run
       # REDUCED KDF iterations *and* makes the boot probe skip itself with only
       # an info log — the one KDF escape hatch that fails open rather than

@@ -171,6 +171,21 @@ export class ServiceStateService {
     return structuredClone(this.#state.tenants[tenantId]);
   }
 
+  /**
+   * Every persisted tenant id paired with its state, cloned.
+   *
+   * The boot-time override replay walks this to re-apply super-admin limit
+   * raises onto the operator config. Read-only snapshot: mutation still goes
+   * through `mutate`.
+   */
+  tenants(): Array<{ id: string; state: TenantState }> {
+    this.#assertHealthy();
+    return Object.entries(this.#state.tenants).map(([id, state]) => ({
+      id,
+      state: structuredClone(state),
+    }));
+  }
+
   /** Serialize a synchronous mutation and publish it only after durable commit. */
   async mutate<T>(fn: (state: ServiceState) => T): Promise<T> {
     // Admission happens before queuing so work accepted before shutdown is

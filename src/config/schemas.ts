@@ -174,9 +174,23 @@ export const WalletTagRecoverySchema = z.object({
   oldTags: z.array(z.string().min(1).max(64)).max(32),
 });
 
+/**
+ * Ceilings raised by the super-admin tier, persisted here rather than in the
+ * boot-only operator config. tenants.json is mounted read-only in the shipped
+ * deployment, so a lift cannot be written there; the state volume is the one
+ * writable, durable home. Applied ON TOP of tenants.json at boot and after each
+ * lift — never lowers a configured limit, so an absent field means "unchanged".
+ */
+export const LimitOverridesSchema = z.object({
+  maxWorkspaces: z.number().int().nonnegative().safe().optional(),
+  maxWallets: z.number().int().nonnegative().safe().optional(),
+}).strict();
+
 export const TenantStateSchema = z.object({
   walletTotal: z.number().int().nonnegative(),
   workspaces: z.array(WorkspaceStateSchema),
+  /** Super-admin ceiling raises, replayed onto the operator config at boot. */
+  limitOverrides: LimitOverridesSchema.optional(),
   /** Persisted absolute millisecond deadlines for recently deleted slugs. */
   workspaceCooldowns: z.record(z.string().regex(SLUG_RE), z.number().int().nonnegative().safe())
     .optional(),
@@ -195,6 +209,7 @@ export type ErrorMapping = z.infer<typeof ErrorMappingSchema>;
 export type ErrorsConfig = z.infer<typeof ErrorsConfigSchema>;
 export type WorkspaceState = z.infer<typeof WorkspaceStateSchema>;
 export type WalletTagRecovery = z.infer<typeof WalletTagRecoverySchema>;
+export type LimitOverrides = z.infer<typeof LimitOverridesSchema>;
 export type TenantState = z.infer<typeof TenantStateSchema>;
 export type ServiceState = z.infer<typeof ServiceStateSchema>;
 

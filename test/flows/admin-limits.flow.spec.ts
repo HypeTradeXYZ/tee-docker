@@ -6,18 +6,16 @@ import { authHeaders, boot, DEFAULT_TENANT, type Harness } from '../harness/boot
 /**
  * admin-limits — the super-admin tier raising a tenant's ceiling end to end.
  *
- * The proof that a lift actually took effect is GET /quota reporting the new
- * limit on the running process, not the tenants.json bytes: a write that never
- * reached the in-memory tenant table would leave the tenant hitting the old
- * wall until the next restart.
+ * The raise is persisted in the writable state volume (state.json), never in
+ * the read-only tenants.json, so the proofs are: GET /quota reports the new
+ * limit on the running process, and state.json carries the override for a
+ * restart to replay.
  */
 
 const ADMIN_KEY = 'p'.repeat(48);
 const PASSWORD = 'Workspace-Passw0rd!x';
 
-const adminHeaders = (key: string = ADMIN_KEY): Record<string, string> => ({
-  'x-admin-key': key,
-});
+const adminHeaders = (key: string = ADMIN_KEY): Record<string, string> => ({ 'x-admin-key': key });
 
 async function listening(
   env: Record<string, string> = { PANADOL_KEY: ADMIN_KEY },
@@ -27,8 +25,10 @@ async function listening(
   return { harness, http: request(harness.app.getHttpServer()) };
 }
 
-const tenantsOnDisk = (harness: Harness) =>
-  JSON.parse(readFileSync(join(harness.baseDir, 'config', 'tenants.json'), 'utf8'));
+const stateOnDisk = (harness: Harness) =>
+  JSON.parse(readFileSync(join(harness.baseDir, 'state', 'state.json'), 'utf8'));
+const overrideFor = (harness: Harness, id: string) =>
+  stateOnDisk(harness).tenants?.[id]?.limitOverrides;
 
 describe('admin limits flow', () => {
   let harness: Harness;
@@ -42,7 +42,7 @@ describe('admin limits flow', () => {
     await harness?.close();
   });
 
-  it('raises a limit and the running service serves the new ceiling', async () => {
+  it('raises a limit; the running service and state.json both reflect it', async () => {
     const before = await http.get('/v1/quota').set(authHeaders()).expect(200);
     expect(before.body.wallets.limit).toBe(DEFAULT_TENANT.limits.maxWallets);
 
@@ -58,10 +58,10 @@ describe('admin limits flow', () => {
       changed: ['maxWallets'],
     });
 
-    // The running process, not just the file.
     const after = await http.get('/v1/quota').set(authHeaders()).expect(200);
     expect(after.body.wallets.limit).toBe(500);
-    expect(tenantsOnDisk(harness).tenants[0].limits.maxWallets).toBe(500);
+    // Persisted for a restart to replay — and NOT in tenants.json.
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toEqual({ maxWallets: 500 });
   });
 
   it('raises both ceilings at once', async () => {
@@ -71,16 +71,13 @@ describe('admin limits flow', () => {
       .send({ maxWorkspaces: 7, maxWallets: 99 })
       .expect(201);
     expect(res.body.changed.sort()).toEqual(['maxWallets', 'maxWorkspaces']);
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toEqual({ maxWorkspaces: 7, maxWallets: 99 });
 
     const quota = await http.get('/v1/quota').set(authHeaders()).expect(200);
-    expect(quota.body).toMatchObject({
-      workspaces: { limit: 7 },
-      wallets: { limit: 99 },
-    });
+    expect(quota.body).toMatchObject({ workspaces: { limit: 7 }, wallets: { limit: 99 } });
   });
 
   it('lets the tenant actually use the headroom it was just granted', async () => {
-    // DEFAULT_TENANT allows 2 workspaces; fill it, then lift and create a third.
     for (const slug of ['desk-a', 'desk-b']) {
       await http
         .post('/v1/workspaces')
@@ -108,7 +105,7 @@ describe('admin limits flow', () => {
       .expect(201);
   });
 
-  it('refuses a decrease, leaving the file and the process untouched', async () => {
+  it('refuses a decrease, writing no override and leaving the process unchanged', async () => {
     const res = await http
       .post(`/v1/admin/tenants/${DEFAULT_TENANT.id}/limits`)
       .set(adminHeaders())
@@ -116,19 +113,19 @@ describe('admin limits flow', () => {
       .expect(409);
     expect(res.body.error.code).toBe('limit_not_raised');
 
-    expect(tenantsOnDisk(harness).tenants[0].limits.maxWallets)
-      .toBe(DEFAULT_TENANT.limits.maxWallets);
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toBeUndefined();
     const quota = await http.get('/v1/quota').set(authHeaders()).expect(200);
     expect(quota.body.wallets.limit).toBe(DEFAULT_TENANT.limits.maxWallets);
   });
 
-  it('treats an unchanged value as an idempotent no-op', async () => {
+  it('treats an unchanged value as an idempotent no-op that writes nothing', async () => {
     const res = await http
       .post(`/v1/admin/tenants/${DEFAULT_TENANT.id}/limits`)
       .set(adminHeaders())
       .send({ maxWallets: DEFAULT_TENANT.limits.maxWallets })
       .expect(201);
     expect(res.body.changed).toEqual([]);
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toBeUndefined();
   });
 
   it('rejects a partial raise atomically when a sibling field is a decrease', async () => {
@@ -137,10 +134,10 @@ describe('admin limits flow', () => {
       .set(adminHeaders())
       .send({ maxWorkspaces: 9, maxWallets: 1 })
       .expect(409);
-
-    // The accepted half must not have been written on its own.
-    expect(tenantsOnDisk(harness).tenants[0].limits.maxWorkspaces)
-      .toBe(DEFAULT_TENANT.limits.maxWorkspaces);
+    // The accepted half must not have been persisted on its own.
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toBeUndefined();
+    const quota = await http.get('/v1/quota').set(authHeaders()).expect(200);
+    expect(quota.body.workspaces.limit).toBe(DEFAULT_TENANT.limits.maxWorkspaces);
   });
 
   it.each([
@@ -187,7 +184,7 @@ describe('admin limits flow', () => {
       .send({ maxWallets: 500 })
       .expect(404);
     expect(res.body.error.code).toBe('tenant_not_found');
-    expect(tenantsOnDisk(harness).tenants).toHaveLength(1);
+    expect(overrideFor(harness, 'ghost')).toBeUndefined();
   });
 
   it.each([
@@ -215,9 +212,8 @@ describe('admin limits flow', () => {
           .expect(201),
       ),
     );
-    // Raise-only makes the outcome order-independent: whatever order the four
-    // land in, the highest wins and no write is lost.
-    expect(tenantsOnDisk(harness).tenants[0].limits.maxWallets).toBe(40);
+    // Raise-only makes the outcome order-independent: the highest wins, none lost.
+    expect(overrideFor(harness, DEFAULT_TENANT.id)).toEqual({ maxWallets: 40 });
     const quota = await http.get('/v1/quota').set(authHeaders()).expect(200);
     expect(quota.body.wallets.limit).toBe(40);
   });

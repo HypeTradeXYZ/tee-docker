@@ -55,6 +55,7 @@ import {
 import { AdminController } from './admin/admin.controller';
 import { AdminService } from './admin/admin.service';
 import { AdminGuard } from './admin/admin.guard';
+import { LimitOverrideReplay } from './admin/limit-override-replay';
 import { ADMIN_RATE_CLOCK, AdminRateLimiter } from './admin/admin-rate-limit';
 import { ADMIN_KEY, adminKeyFromEnv } from './admin/admin-key';
 import {
@@ -100,6 +101,7 @@ import {
     AdminRateLimiter,
     AdminGuard,
     AdminService,
+    LimitOverrideReplay,
     { provide: WORKSPACE_CREATION_CLOCK, useValue: Date.now },
     { provide: WORKSPACE_CREATION_CONFIG, useFactory: workspaceCreationConfigFromEnv },
     WorkspaceCreationLimiter,
