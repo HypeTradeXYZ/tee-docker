@@ -133,6 +133,7 @@ All routes use the `/v1` prefix.
 | Check service health | `GET /health` | None |
 | List or create workspaces | `GET/POST /workspaces` | Tenant credentials |
 | View current usage limits | `GET /quota` | Tenant credentials |
+| Raise a tenant's limits | `POST /admin/tenants/:id/limits` | Super-admin key |
 | Request a workspace token | `POST /auth/token` | Tenant credentials |
 | Refresh a token | `POST /auth/token/refresh` | Workspace token |
 | Revoke a token | `DELETE /auth/token` | Workspace token |
@@ -244,6 +245,9 @@ same ID appears in the response header and error body.
 
 Common situations include expired tokens (`session_expired`), missing permissions
 (`scope_denied`), usage limits, unavailable network providers, and invalid request data.
+On the operator endpoint, `admin_denied` means the super-admin key was missing or wrong,
+`tenant_not_found` names a tenant the operator config does not list, and `limit_not_raised`
+means the requested ceiling was below the configured one — that endpoint only raises limits.
 For invalid requests, `invalid_slug` means a workspace or account ID has invalid syntax,
 `invalid_body` means the JSON shape or field combination is wrong, and `invalid_parameter` means
 a path or query selector is malformed. `unsupported_for_kind` means the selected account, wallet,
@@ -269,6 +273,8 @@ rather than `pending`, so a failing endpoint is never mistaken for a transaction
 - Revoke a token with `DELETE /v1/auth/token` when a workflow is finished.
 - Use `?force=true` when deleting an in-use workspace only if revoking its active tokens is intended.
 - Keep network endpoint credentials and export setup with the service operator, not in client code.
+- Treat the super-admin key as operator-only material, never shipped to a client. It can raise any
+  tenant's limits on a running service, so it belongs with the service's other secrets.
 
 ## Useful commands
 

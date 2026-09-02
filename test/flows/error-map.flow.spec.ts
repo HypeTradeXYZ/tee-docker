@@ -124,6 +124,11 @@ describe('error-map', () => {
     //   TEE_ACCOUNT_UNLOCK_RATE -> names only a finite retry delay
     //   TEE_RPC_CAPACITY -> names only the exhausted scope and configured limit
     //   workspace creation/cooldown limits -> name only a finite retry delay
+    //   TEE_ADMIN_RATE -> names only a finite retry delay
+    //   TEE_LIMIT_NOT_RAISED -> names the limit, its configured value and the
+    //     requested one. The configured value is already published to the
+    //     tenant itself by GET /quota, so this reveals nothing new, and the
+    //     operator cannot act on the refusal without knowing what to beat.
     expect(new Set(optedIn)).toEqual(
       new Set([
         'TEE_INVALID_SLUG',
@@ -136,6 +141,8 @@ describe('error-map', () => {
         'TEE_RPC_CAPACITY',
         'TEE_WORKSPACE_CREATE_RATE',
         'TEE_WORKSPACE_RECREATE_COOLDOWN',
+        'TEE_ADMIN_RATE',
+        'TEE_LIMIT_NOT_RAISED',
       ]),
     );
   });

@@ -52,6 +52,11 @@ import {
   RpcOperationService,
   rpcOperationConfigFromEnv,
 } from './session/rpc-operation.service';
+import { AdminController } from './admin/admin.controller';
+import { AdminService } from './admin/admin.service';
+import { AdminGuard } from './admin/admin.guard';
+import { ADMIN_RATE_CLOCK, AdminRateLimiter } from './admin/admin-rate-limit';
+import { ADMIN_KEY, adminKeyFromEnv } from './admin/admin-key';
 import {
   WORKSPACE_CREATION_CLOCK,
   WORKSPACE_CREATION_CONFIG,
@@ -61,7 +66,7 @@ import {
 
 @Module({
   imports: [ConfigModule],
-  controllers: [HealthController, WorkspacesController, AuthController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController],
+  controllers: [HealthController, WorkspacesController, AuthController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
   providers: [
     { provide: SERVER_KEY, useFactory: () => ServerKeyProvider.fromEnv() },
     TenantGuard,
@@ -88,6 +93,13 @@ import {
     // that populates the scopes.
     ScopesGuard,
     WorkspacesService,
+    // Same reason as MintRateLimiter: env files are loaded after AppModule is
+    // statically imported but before providers are constructed.
+    { provide: ADMIN_KEY, useFactory: () => adminKeyFromEnv() },
+    { provide: ADMIN_RATE_CLOCK, useValue: Date.now },
+    AdminRateLimiter,
+    AdminGuard,
+    AdminService,
     { provide: WORKSPACE_CREATION_CLOCK, useValue: Date.now },
     { provide: WORKSPACE_CREATION_CONFIG, useFactory: workspaceCreationConfigFromEnv },
     WorkspaceCreationLimiter,

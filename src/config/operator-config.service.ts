@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { Injectable } from '@nestjs/common';
-import { TenantsConfigSchema, TtlSchema, type RawTenant, type Tenant } from './schemas';
+import { TenantsConfigSchema, TtlSchema, type Limits, type RawTenant, type Tenant } from './schemas';
 import type { Paths } from './paths';
 import { validateRecipient } from '../export/seal';
 
@@ -44,6 +44,30 @@ export class OperatorConfigService {
 
   get all(): readonly Tenant[] {
     return [...this.#byId.values()];
+  }
+
+  /**
+   * The one deliberate mutation point on this otherwise boot-only table.
+   *
+   * The super-admin tier raises a ceiling in tenants.json and then calls this,
+   * so the new limit applies without a restart. Only the two liftable fields
+   * move: every other field, including maxUnlockedWorkspaces, keeps its
+   * boot-time value, so an unrelated hand-edit to the file cannot take effect
+   * as a side effect of a lift. Call this only AFTER the file write succeeds,
+   * or memory would advertise a ceiling the config does not carry.
+   */
+  applyLimits(id: string, limits: Pick<Limits, 'maxWorkspaces' | 'maxWallets'>): void {
+    const tenant = this.#byId.get(id);
+    if (!tenant) throw new Error(`cannot apply limits to unknown tenant ${id}`);
+
+    const updated: Tenant = {
+      ...tenant,
+      limits: { ...tenant.limits, ...limits },
+    };
+    // Both indexes hand out the same record, so both have to be replaced or a
+    // request authenticating by API key would keep reading the old ceiling.
+    this.#byId.set(id, updated);
+    this.#byApiKey.set(tenant.apiKey, updated);
   }
 }
 

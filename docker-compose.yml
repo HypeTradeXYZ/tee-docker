@@ -125,7 +125,8 @@ services:
 
       - traefik.http.routers.tee-docker.rule=Host(`${TEE_API_HOST:-tee-api.hypetrade.xyz}`)
       - traefik.http.routers.tee-docker.entrypoints=websecure
-      - traefik.http.routers.tee-docker.tls.certresolver=letsencrypt
+      - traefik.http.routers.tee-docker.tls=true
+      - traefik.http.routers.tee-docker.tls.certresolver=${TEE_TLS_CERT_RESOLVER:-letsencrypt}
       - traefik.http.routers.tee-docker.service=tee-docker
 
       # Tenant API secrets and workspace tokens travel these requests. Plain

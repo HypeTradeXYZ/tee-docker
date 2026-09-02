@@ -21,6 +21,7 @@
   "POST /v1/accounts/:slug/wallets",
   "POST /v1/accounts/:slug/wallets/:id/export",
   "POST /v1/accounts/:slug/wallets/import",
+  "POST /v1/admin/tenants/:id/limits",
   "POST /v1/auth/token",
   "POST /v1/auth/token/refresh",
   "POST /v1/sign/message",

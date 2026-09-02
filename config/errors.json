@@ -55,6 +55,10 @@
     "TEE_BALANCES_UNAVAILABLE": { "status": 501, "code": "not_implemented", "exposeMessage": true, "publicMessage": "Balance lookup is not available in this release." },
     "TEE_WORKSPACE_CREATE_RATE": { "status": 429, "code": "workspace_creation_rate_limited", "exposeDetails": true },
     "TEE_WORKSPACE_RECREATE_COOLDOWN": { "status": 429, "code": "workspace_recreation_cooldown", "exposeDetails": true },
-    "TEE_CHAIN_ID_MISMATCH": { "status": 400, "code": "chain_id_mismatch" }
+    "TEE_CHAIN_ID_MISMATCH": { "status": 400, "code": "chain_id_mismatch" },
+    "TEE_ADMIN_DENIED": { "status": 401, "code": "admin_denied" },
+    "TEE_ADMIN_RATE": { "status": 429, "code": "admin_rate_limited", "exposeDetails": true },
+    "TEE_TENANT_NOT_FOUND": { "status": 404, "code": "tenant_not_found" },
+    "TEE_LIMIT_NOT_RAISED": { "status": 409, "code": "limit_not_raised", "exposeDetails": true }
   }
 }
