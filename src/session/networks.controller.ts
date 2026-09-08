@@ -5,6 +5,7 @@ import { TeeError } from '../common/tee-error';
 import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
 import type { Tenant } from '../config/schemas';
 import { assertValidSlug } from '../workspaces/workspace-paths';
 import { type Session } from './session.registry';
@@ -31,7 +32,7 @@ interface NetworkView {
  * slow" is never ambiguous.
  */
 @Controller('workspace/networks')
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 export class NetworksController {
   constructor(private readonly rpcBoundary: RpcBoundaryService) {}
 

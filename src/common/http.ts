@@ -9,10 +9,19 @@ import type { Session } from '../session/session.registry';
  * augmentation pollutes the global Express type for every consumer, and under
  * pnpm's strict isolation that module is not even directly resolvable.
  */
+/** The privilege level a bearer token carries, narrowest last. */
+export type CredentialLevel = 'workspace' | 'account' | 'wallet';
+
 export interface AppRequest extends Request {
   requestId?: string;
   tenant?: Tenant;
   session?: Session;
   scopes?: string[];
   leaseId?: string;
+  /** Derived from the authoritative lease by WorkspaceGuard. */
+  credentialLevel?: CredentialLevel;
+  /** Account slug an account- or wallet-scoped token is confined to. */
+  accountBinding?: string;
+  /** The single wallet a wallet-scoped token is confined to. */
+  walletBinding?: { acct: string; wid: number };
 }

@@ -6,13 +6,14 @@ import {
   WorkspaceGuard,
 } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
 import { TeeError } from '../common/tee-error';
 import { BalanceCapabilityGuard } from './balance-capability';
 import { RpcOperation } from './rpc-operation.service';
 import { type Session, SessionRegistry } from './session.registry';
 
 @Controller('addresses')
-@UseGuards(WorkspaceGuard, ScopesGuard, BalanceCapabilityGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard, BalanceCapabilityGuard)
 export class BalancesController {
   constructor(private readonly sessions: SessionRegistry) {}
 

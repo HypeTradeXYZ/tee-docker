@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { AuditScopeDenial, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from '../session/account-slug';
@@ -27,7 +28,7 @@ type ExportTarget =
  * yields a blob the thief cannot open.
  */
 @Controller()
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 @RequireScopes('export')
 export class ExportController {
   private readonly logger = new Logger(ExportController.name);

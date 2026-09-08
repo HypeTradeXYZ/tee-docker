@@ -10,6 +10,11 @@ import {
 } from '../auth/workspace.guard';
 import { AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 import { AllowAnyWorkspaceScope, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import {
+  AccountScopeGuard,
+  AccountTokenTarget,
+  WalletScopeGuard,
+} from '../auth/scope-binding.guard';
 import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
 import type { Tenant } from '../config/schemas';
@@ -42,7 +47,7 @@ interface AccountView {
  * disagree about which workspace is in play.
  */
 @Controller()
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 export class WorkspaceController {
   constructor(
     private readonly sessions: SessionRegistry,
@@ -155,6 +160,7 @@ export class WorkspaceController {
    */
   @Get('accounts/:slug')
   @RequireScopes('read')
+  @AccountTokenTarget('account-slug-param')
   async account(
     @CurrentSession() session: Session,
     @Param('slug') slug: string,

@@ -118,6 +118,8 @@ export class AuthController {
       throw new TeeError('TEE_INVALID_BODY', 'refresh body must be empty');
     }
     const grant = await this.sessions.refresh(session, jti, tenant.ttl.workspaceIdleSec);
+    // Carry the lease's authoritative binding forward, or the refreshed token
+    // drops its acc/wal claim and get()'s cross-check rejects it on next use.
     const signed = this.jwt.sign(
       {
         tid: tenant.id,
@@ -125,6 +127,8 @@ export class AuthController {
         sid: session.sid,
         jti: grant.lease.jti,
         scp: [...grant.lease.scopes],
+        ...(grant.lease.account !== undefined ? { acc: grant.lease.account } : {}),
+        ...(grant.lease.wallet !== undefined ? { wal: grant.lease.wallet } : {}),
       },
       grant.exp,
     );

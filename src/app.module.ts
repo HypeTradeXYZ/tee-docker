@@ -6,6 +6,9 @@ import { ErrorFilter } from './common/error.filter';
 import { SERVER_KEY, ServerKeyProvider } from './auth/server-key';
 import { TenantGuard } from './auth/tenant.guard';
 import { AuthController } from './auth/auth.controller';
+import { ApiKeyController } from './auth/api-key.controller';
+import { ApiKeyService } from './auth/api-key.service';
+import { AccountScopeGuard, WalletScopeGuard } from './auth/scope-binding.guard';
 import { JwtService } from './auth/jwt.service';
 import { MintRateLimiter, mintRateLimitFromEnv } from './auth/mint-rate-limit';
 import { ACCOUNT_UNLOCK_CLOCK, AccountUnlockLimiter } from './auth/account-unlock-limiter';
@@ -67,7 +70,7 @@ import {
 
 @Module({
   imports: [ConfigModule],
-  controllers: [HealthController, WorkspacesController, AuthController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
+  controllers: [HealthController, WorkspacesController, AuthController, ApiKeyController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
   providers: [
     { provide: SERVER_KEY, useFactory: () => ServerKeyProvider.fromEnv() },
     TenantGuard,
@@ -93,6 +96,11 @@ import {
     // and deny every scoped route. Applied per-controller, after the guard
     // that populates the scopes.
     ScopesGuard,
+    // Same per-controller reasoning: these read the credential level/binding
+    // that WorkspaceGuard derives, so they run after it, never globally.
+    AccountScopeGuard,
+    WalletScopeGuard,
+    ApiKeyService,
     WorkspacesService,
     // Same reason as MintRateLimiter: env files are loaded after AppModule is
     // statically imported but before providers are constructed.

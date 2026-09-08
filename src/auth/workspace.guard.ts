@@ -10,7 +10,7 @@ import type { AppRequest } from '../common/http';
 import { TeeError } from '../common/tee-error';
 import { OperatorConfigService } from '../config/operator-config.service';
 import type { Tenant } from '../config/schemas';
-import type { Session } from '../session/session.registry';
+import type { LeaseBinding, Session } from '../session/session.registry';
 import { SessionRegistry } from '../session/session.registry';
 import { JwtService } from './jwt.service';
 
@@ -48,6 +48,11 @@ export class WorkspaceGuard implements CanActivate {
       throw new TeeError('TEE_SESSION_EXPIRED', 'session is not valid', { reason: 'no tenant' });
     }
 
+    // The lease is authoritative; the claim's binding must match it exactly.
+    const binding: LeaseBinding = {
+      ...(claims.acc !== undefined ? { account: claims.acc } : {}),
+      ...(claims.wal !== undefined ? { wallet: claims.wal } : {}),
+    };
     const access = this.sessions.get(
       claims.sid,
       claims.jti,
@@ -59,6 +64,7 @@ export class WorkspaceGuard implements CanActivate {
         context.getHandler(),
         context.getClass(),
       ]) !== true,
+      binding,
     );
     if (!access) {
       // Covers lock, idle expiry, absolute expiry, and a restart that dropped
@@ -70,6 +76,20 @@ export class WorkspaceGuard implements CanActivate {
     req.scopes = [...access.lease.scopes];
     req.leaseId = access.lease.jti;
     req.tenant = tenant;
+
+    // Derive the credential level + bindings from the authoritative lease, never
+    // from the raw claim, so downstream scope guards trust server state alone.
+    const lease = access.lease;
+    if (lease.wallet !== undefined) {
+      req.credentialLevel = 'wallet';
+      req.walletBinding = { acct: lease.wallet.acct, wid: lease.wallet.wid };
+      req.accountBinding = lease.wallet.acct;
+    } else if (lease.account !== undefined) {
+      req.credentialLevel = 'account';
+      req.accountBinding = lease.account;
+    } else {
+      req.credentialLevel = 'workspace';
+    }
     return true;
   }
 }

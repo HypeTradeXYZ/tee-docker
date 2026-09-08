@@ -10,6 +10,10 @@ export interface TokenClaims {
   /** Stable, server-tracked token lease id. */
   readonly jti: string;
   readonly scp: string[];
+  /** Account slug this token is scoped to, for an account- or wallet-level token. */
+  readonly acc?: string;
+  /** Wallet this token is scoped to, for a wallet-level token. */
+  readonly wal?: { readonly acct: string; readonly wid: number };
   readonly exp: number;
   readonly iat: number;
 }
@@ -58,7 +62,9 @@ export class JwtService {
       !Number.isSafeInteger(raw.exp) ||
       (raw.exp as number) <= (raw.iat as number) ||
       (raw.iat as number) > Math.floor(Date.now() / 1000) + 30 ||
-      !validScopes(raw.scp)
+      !validScopes(raw.scp) ||
+      !validOptionalAccount(raw.acc) ||
+      !validOptionalWallet(raw.wal)
     ) {
       throw expired('invalid claims');
     }
@@ -88,6 +94,24 @@ function isNonemptyString(value: unknown): value is string {
 function validScopes(value: unknown): value is string[] {
   if (!Array.isArray(value) || value.length === 0 || !value.every(isNonemptyString)) return false;
   return new Set(value).size === value.length && value.every((scope) => SUPPORTED_SCOPES.has(scope));
+}
+
+/** An account claim, when present, is a non-empty slug string. */
+function validOptionalAccount(value: unknown): boolean {
+  return value === undefined || isNonemptyString(value);
+}
+
+/** A wallet claim, when present, names its account slug and a safe wallet id. */
+function validOptionalWallet(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const wal = value as Record<string, unknown>;
+  return (
+    isNonemptyString(wal.acct) &&
+    Number.isSafeInteger(wal.wid) &&
+    (wal.wid as number) >= 0 &&
+    Object.keys(wal).length === 2
+  );
 }
 
 function expired(reason: string): TeeError {

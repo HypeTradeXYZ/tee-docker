@@ -11,6 +11,7 @@ import { TeeError, teeCoreError } from '../common/tee-error';
 import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
 import type { Tenant } from '../config/schemas';
 import { requireRpc } from './rpc';
 import { SessionRegistry, type Session } from './session.registry';
@@ -71,7 +72,7 @@ const toBig = (v: string | number | undefined): bigint | undefined =>
  * Status is a stateless RPC passthrough instead: callers poll it if they care.
  */
 @Controller('transactions')
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 @RequireScopes('sign')
 export class TransactionsController {
   constructor(

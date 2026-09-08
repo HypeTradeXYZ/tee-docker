@@ -4,6 +4,12 @@ import { TeeError } from '../common/tee-error';
 import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import {
+  AccountScopeGuard,
+  AccountTokenTarget,
+  WalletScopeGuard,
+  WalletTokenTarget,
+} from '../auth/scope-binding.guard';
 import { SLUG_RE, type Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
@@ -39,7 +45,7 @@ const ImportKey = z.object({ privateKey: z.string().min(1) }).strict();
 const SetTags = z.object({ tags: z.array(z.string()).max(32) }).strict();
 
 @Controller('accounts')
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 export class AccountsController {
   constructor(
     private readonly accounts: AccountsService,
@@ -134,6 +140,7 @@ export class AccountsController {
 
   @Get(':slug/wallets')
   @RequireScopes('read')
+  @AccountTokenTarget('account-slug-param')
   async wallets(
     @CurrentSession() session: Session,
     @Param('slug') slug: string,
@@ -144,6 +151,8 @@ export class AccountsController {
 
   @Get(':slug/wallets/:id/addresses')
   @RequireScopes('read')
+  @AccountTokenTarget('account-slug-param')
+  @WalletTokenTarget('slug-id-param')
   async addresses(
     @CurrentSession() session: Session,
     @Param('slug') slug: string,

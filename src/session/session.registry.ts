@@ -17,9 +17,21 @@ import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account
 import { WalletTagsService } from './wallet-tags.service';
 import { damagedAccountSlugs } from './damaged-accounts';
 
+/** How a token lease is confined below the workspace: to an account, or to one wallet. */
+export interface LeaseBinding {
+  /** Account slug an account- or wallet-scoped token may act within. */
+  readonly account?: string;
+  /** The single wallet a wallet-scoped token may act on. */
+  readonly wallet?: { readonly acct: string; readonly wid: number };
+}
+
 export interface TokenLease {
   readonly jti: string;
   readonly scopes: readonly string[];
+  /** Present on an account- or wallet-scoped lease; absent on a workspace lease. */
+  readonly account?: string;
+  /** Present only on a wallet-scoped lease. */
+  readonly wallet?: { readonly acct: string; readonly wid: number };
   expiresAt: number;
 }
 
@@ -280,6 +292,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     workspaceSlug: string,
     password: string,
     scopes: readonly string[],
+    binding: LeaseBinding = {},
   ): Promise<SessionGrant> {
     const key = workspaceKey(tenant.id, workspaceSlug);
     // Validate the authenticated path components at the registry boundary as
@@ -326,7 +339,7 @@ export class SessionRegistry implements OnApplicationShutdown {
           this.assertPassword(session, password);
           this.assertLeaseCapacity(session);
           this.touch(session, tenant.ttl.workspaceIdleSec);
-          return this.addLease(session, scopes);
+          return this.addLease(session, scopes, binding);
         }
       }
 
@@ -394,7 +407,7 @@ export class SessionRegistry implements OnApplicationShutdown {
         entry.state = 'active';
         entry.session = session;
         this.#sessions.set(session.sid, session);
-        const grant = this.addLease(session, scopes);
+        const grant = this.addLease(session, scopes, binding);
         this.logger.log(`session opened: ${tenant.id}/${workspaceSlug} (${session.sid})`);
         return grant;
       } catch (err) {
@@ -522,6 +535,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     scopes: readonly string[],
     idleSec: number,
     touchIdle = true,
+    binding: LeaseBinding = {},
   ): { session: Session; lease: TokenLease } | null {
     const session = this.#sessions.get(sid);
     if (
@@ -540,7 +554,12 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
 
     const lease = session.leases.get(jti);
-    if (!lease || lease.expiresAt <= now || !sameScopes(lease.scopes, scopes)) {
+    if (
+      !lease ||
+      lease.expiresAt <= now ||
+      !sameScopes(lease.scopes, scopes) ||
+      !sameBinding(lease, binding)
+    ) {
       if (lease?.expiresAt && lease.expiresAt <= now) {
         this.releaseInBackground(sid, jti, 'expired token lease');
       }
@@ -858,12 +877,22 @@ export class SessionRegistry implements OnApplicationShutdown {
     if (this.#workspaces.get(entry.key) === entry) this.#workspaces.delete(entry.key);
   }
 
-  private addLease(session: Session, scopes: readonly string[]): SessionGrant {
+  private addLease(
+    session: Session,
+    scopes: readonly string[],
+    binding: LeaseBinding = {},
+  ): SessionGrant {
     this.assertLeaseCapacity(session);
     let jti: string;
     do jti = randomUUID(); while (session.leases.has(jti));
     const exp = tokenExpiry(session, this.#now());
-    const lease: TokenLease = { jti, scopes: [...scopes], expiresAt: exp * 1000 };
+    const lease: TokenLease = {
+      jti,
+      scopes: [...scopes],
+      expiresAt: exp * 1000,
+      ...(binding.account !== undefined ? { account: binding.account } : {}),
+      ...(binding.wallet !== undefined ? { wallet: binding.wallet } : {}),
+    };
     session.leases.set(jti, lease);
     return { session, lease, exp };
   }
@@ -1117,6 +1146,20 @@ function tokenExpiry(session: Session, now = Date.now()): number {
 
 function sameScopes(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((scope, index) => scope === right[index]);
+}
+
+/**
+ * A token's claimed binding must match its server-side lease exactly. The lease
+ * is authoritative: a tampered or replayed claim that names a different account
+ * or wallet than the lease was minted with is rejected, and a scoped lease can
+ * never be reached by an unbound (workspace) claim.
+ */
+function sameBinding(lease: TokenLease, binding: LeaseBinding): boolean {
+  if ((lease.account ?? undefined) !== (binding.account ?? undefined)) return false;
+  const lw = lease.wallet;
+  const bw = binding.wallet;
+  if (lw === undefined || bw === undefined) return lw === bw;
+  return lw.acct === bw.acct && lw.wid === bw.wid;
 }
 
 function capacityError(scope: 'workspace' | 'tenant' | 'process', limit: number): TeeError {

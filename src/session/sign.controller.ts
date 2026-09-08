@@ -5,6 +5,7 @@ import { TeeError } from '../common/tee-error';
 import { invalidBodyMessage } from '../common/invalid-body';
 import { CurrentSession, WorkspaceGuard } from '../auth/workspace.guard';
 import { RequireScopes, ScopesGuard } from '../auth/scopes.guard';
+import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
 import { SessionRegistry, type Session } from './session.registry';
 
 const SignMessage = z.object({
@@ -74,7 +75,7 @@ function declaredChainId(domain: unknown): number | undefined {
  * session's own workspace, so one tenant can never sign with another's key.
  */
 @Controller('sign')
-@UseGuards(WorkspaceGuard, ScopesGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
 @RequireScopes('sign')
 export class SignController {
   constructor(private readonly sessions: SessionRegistry) {}
