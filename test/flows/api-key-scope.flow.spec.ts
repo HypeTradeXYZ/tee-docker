@@ -69,6 +69,57 @@ describe('api-key-scope-flow', () => {
     expect(typeof res.body.token).toBe('string');
   });
 
+  it('defaults an omitted tier to least-privilege Basic (read+write, no sign)', async () => {
+    const res = await mintApiKey({ account: acctX }).expect(201);
+    expect(res.body.tier).toBe('basic');
+    expect(res.body.scopes).toEqual(['read', 'write']);
+    const who = await http().get('/v1/auth/whoami').set(bearer(res.body.token)).expect(200);
+    expect(who.body.tier).toBe('basic');
+    expect(who.body.scopes).toEqual(['read', 'write']);
+  });
+
+  it('mints an Unlimited tier that carries the sign scope', async () => {
+    const res = await mintApiKey({ account: acctX, tier: 'unlimited' }).expect(201);
+    expect(res.body.tier).toBe('unlimited');
+    expect(res.body.scopes).toEqual(['read', 'write', 'sign']);
+    const who = await http().get('/v1/auth/whoami').set(bearer(res.body.token)).expect(200);
+    expect(who.body.tier).toBe('unlimited');
+  });
+
+  it('rejects an unknown tier', async () => {
+    const res = await mintApiKey({ account: acctX, tier: 'root' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('invalid_body');
+  });
+
+  it('enforces the tier at a real sign route, not just in the reported scopes', async () => {
+    const signBody = { address: `0x${'1'.repeat(40)}`, message: 'hi' };
+
+    // Basic is stopped by the scope guard: the sign scope is absent, so the
+    // denial names the missing scope.
+    const basic = (await mintApiKey({ account: acctX, tier: 'basic' }).expect(201)).body.token;
+    const basicRes = await http().post('/v1/sign/message').set(bearer(basic)).send(signBody);
+    expect(basicRes.status).toBe(403);
+    expect(basicRes.body.error).toMatchObject({
+      code: 'scope_denied',
+      details: { required: ['sign'] },
+    });
+
+    // Unlimited clears the scope guard (the sign scope is present) and is stopped
+    // only by the account-binding guard, which carries no missing-scope details —
+    // proving the tier actually granted sign end to end.
+    const unlimited = (
+      await mintApiKey({ account: acctX, tier: 'unlimited' }).expect(201)
+    ).body.token;
+    const unlimitedRes = await http()
+      .post('/v1/sign/message')
+      .set(bearer(unlimited))
+      .send(signBody);
+    expect(unlimitedRes.status).toBe(403);
+    expect(unlimitedRes.body.error.code).toBe('scope_denied');
+    expect(unlimitedRes.body.error.details).toBeUndefined();
+  });
+
   it('account token reads its own account/wallets, denied on another account, list, and export', async () => {
     const t = (await mintApiKey({ account: acctX }).expect(201)).body.token;
     await http().get(`/v1/accounts/${acctX}`).set(bearer(t)).expect(200);

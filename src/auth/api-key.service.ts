@@ -6,8 +6,27 @@ import { validateRecipient } from '../export/seal';
 import { JwtService } from './jwt.service';
 import { unlockedFunctions, type InquiryFunction } from './functionality';
 
-/** A scoped token carries the same base scopes as a workspace token, confined by its binding. */
-const SCOPED_SCOPES = ['read', 'write', 'sign'];
+/**
+ * The two capability tiers a tenant can mint. Basic withholds fund movement
+ * (the sign scope); Unlimited grants the full set. Key export is additionally
+ * gated on a live inquiry key today and is tier-gated to Unlimited in a later
+ * wave. The tier is expressed as the lease's granted scopes, so it needs no
+ * separate claim.
+ */
+export type ApiKeyTier = 'basic' | 'unlimited';
+
+const TIER_SCOPES: Record<ApiKeyTier, readonly string[]> = {
+  basic: ['read', 'write'],
+  unlimited: ['read', 'write', 'sign'],
+};
+
+/** Least-privilege default when the tenant does not name a tier. */
+const DEFAULT_TIER: ApiKeyTier = 'basic';
+
+/** The tier a scoped lease represents, read back from its granted scopes. */
+export function tierOf(scopes: readonly string[]): ApiKeyTier {
+  return scopes.includes('sign') ? 'unlimited' : 'basic';
+}
 
 /** Inquiry-key validity when the tenant does not set one: four hours. */
 const DEFAULT_VALIDATION_SEC = 4 * 60 * 60;
@@ -18,6 +37,8 @@ export interface MintApiKeyRequest {
   readonly account: string;
   /** Present for a wallet-scoped key; absent for an account-scoped key. */
   readonly walletId?: number;
+  /** Capability tier; defaults to the least-privilege Basic when omitted. */
+  readonly tier?: ApiKeyTier;
   /** Optional inquiry key (X25519 recipient) that unlocks the sensitive functions. */
   readonly inquiryKey?: string;
   /** Inquiry-key validity in seconds; defaults to four hours when omitted. */
@@ -31,6 +52,7 @@ export interface ApiKeyResult {
   readonly workspace: string;
   readonly account: string;
   readonly walletId?: number;
+  readonly tier: ApiKeyTier;
   readonly scopes: string[];
   /** Whether the inquiry key unlocked the sensitive functionality list. */
   readonly sensitiveEnabled: boolean;
@@ -56,6 +78,7 @@ export class ApiKeyService {
 
   async mint(tenant: Tenant, req: MintApiKeyRequest): Promise<ApiKeyResult> {
     const level: 'account' | 'wallet' = req.walletId !== undefined ? 'wallet' : 'account';
+    const tier: ApiKeyTier = req.tier ?? DEFAULT_TIER;
 
     // An inquiry key is optional. When present it is validated up front (a bad
     // key is a 4xx, not a 5xx) and pins the sensitive functionality list for a
@@ -82,7 +105,7 @@ export class ApiKeyService {
       tenant,
       req.workspace,
       req.password,
-      SCOPED_SCOPES,
+      TIER_SCOPES[tier],
       binding,
     );
     // The lease is live now. Verify the target on the shared core handle UNDER
@@ -135,6 +158,7 @@ export class ApiKeyService {
         workspace: req.workspace,
         account: req.account,
         ...(req.walletId !== undefined ? { walletId: req.walletId } : {}),
+        tier,
         scopes: [...grant.lease.scopes],
         sensitiveEnabled: functions.length > 0,
         functions,

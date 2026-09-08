@@ -18,6 +18,8 @@ const MintBody = z
     account: z.string(),
     // When present, the token is scoped to this one wallet; otherwise to the account.
     walletId: z.number().int().nonnegative().safe().optional(),
+    // Capability tier; defaults to the least-privilege Basic when omitted.
+    tier: z.enum(['basic', 'unlimited']).optional(),
     // Optional inquiry key (`x25519:<base64>`) that unlocks the sensitive functions.
     inquiryKey: z.string().min(1).max(128).optional(),
     // Inquiry-key validity in seconds (tenant-set); defaults to 4h. Bounded to
@@ -61,7 +63,7 @@ export class ApiKeyController {
       throw new TeeError(
         'TEE_INVALID_BODY',
         invalidBodyMessage(
-          'body must be { workspace, password, account, walletId? }',
+          'body must be { workspace, password, account, walletId?, tier? }',
           parsed.error,
           body,
         ),
@@ -78,6 +80,7 @@ export class ApiKeyController {
       password: parsed.data.password,
       account,
       ...(parsed.data.walletId !== undefined ? { walletId: parsed.data.walletId } : {}),
+      ...(parsed.data.tier !== undefined ? { tier: parsed.data.tier } : {}),
       ...(parsed.data.inquiryKey !== undefined ? { inquiryKey: parsed.data.inquiryKey } : {}),
       ...(parsed.data.validationDuration !== undefined
         ? { validationDuration: parsed.data.validationDuration }

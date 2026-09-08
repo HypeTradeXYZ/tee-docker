@@ -8,6 +8,7 @@ import type { Tenant } from '../config/schemas';
 import type { Session } from '../session/session.registry';
 import { SessionRegistry } from '../session/session.registry';
 import { assertValidSlug } from '../workspaces/workspace-paths';
+import { tierOf, type ApiKeyTier } from './api-key.service';
 import { JwtService } from './jwt.service';
 import { MintRateLimiter } from './mint-rate-limit';
 import { CurrentTenant, TenantGuard } from './tenant.guard';
@@ -174,6 +175,7 @@ export class AuthController {
     workspace: string;
     account?: string;
     walletId?: number;
+    tier?: ApiKeyTier;
     scopes: string[];
     sensitiveEnabled: boolean;
     functions: string[];
@@ -182,12 +184,18 @@ export class AuthController {
   } {
     const lease = session.leases.get(jti);
     const functions = req.functions ?? [];
+    const scopes = req.scopes ?? [];
+    const level = req.credentialLevel ?? 'workspace';
+    // Tier is a minted account/wallet-key concept; a workspace token carries an
+    // arbitrary scope set the two-tier vocabulary cannot honestly summarize.
+    const scoped = level === 'account' || level === 'wallet';
     return {
-      level: req.credentialLevel ?? 'workspace',
+      level,
       workspace: session.workspaceSlug,
       ...(req.accountBinding !== undefined ? { account: req.accountBinding } : {}),
       ...(req.walletBinding !== undefined ? { walletId: req.walletBinding.wid } : {}),
-      scopes: req.scopes ?? [],
+      ...(scoped ? { tier: tierOf(scopes) } : {}),
+      scopes,
       sensitiveEnabled: functions.length > 0,
       functions,
       ...(req.inquiryExpiresAt !== undefined
