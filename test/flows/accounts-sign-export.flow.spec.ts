@@ -219,9 +219,29 @@ describe('accounts-sign-export-flow', () => {
   });
 
   describe('sealed export', () => {
-    it('seals a mnemonic that only the registered key can open', async () => {
-      const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
-      const res = await http().post(`/v1/accounts/${slug}/export`).set(bearer()).expect(200);
+    // The end user's own inquiry key. Export is minted as a scoped api key that
+    // carries it, and seals to it — the operator never holds the recipient.
+    const accountSlug = async (): Promise<string> =>
+      (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
+    const inquiryToken = async (body: Record<string, unknown>): Promise<string> =>
+      (
+        await http()
+          .post('/v1/auth/api-key')
+          .set(authHeaders())
+          .send({
+            workspace: 'desk-a',
+            password: WS_PASSWORD,
+            inquiryKey: recipient.configured,
+            ...body,
+          })
+          .expect(201)
+      ).body.token;
+    const auth = (t: string) => ({ authorization: `Bearer ${t}` });
+
+    it('seals a mnemonic that only the end-user inquiry key can open', async () => {
+      const slug = await accountSlug();
+      const t = await inquiryToken({ account: slug });
+      const res = await http().post(`/v1/accounts/${slug}/export`).set(auth(t)).expect(200);
 
       expect(res.body.sealed.alg).toBe('x25519-hkdf-sha256-aes256gcm');
       // The plaintext must not appear anywhere in the response.
@@ -232,9 +252,10 @@ describe('accounts-sign-export-flow', () => {
     });
 
     it('produces a different blob each time — ephemeral sender key', async () => {
-      const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
-      const a = await http().post(`/v1/accounts/${slug}/export`).set(bearer()).expect(200);
-      const b = await http().post(`/v1/accounts/${slug}/export`).set(bearer()).expect(200);
+      const slug = await accountSlug();
+      const t = await inquiryToken({ account: slug });
+      const a = await http().post(`/v1/accounts/${slug}/export`).set(auth(t)).expect(200);
+      const b = await http().post(`/v1/accounts/${slug}/export`).set(auth(t)).expect(200);
 
       expect(a.body.sealed.ciphertext).not.toBe(b.body.sealed.ciphertext);
       expect(a.body.sealed.ephemeralPublicKey).not.toBe(b.body.sealed.ephemeralPublicKey);
@@ -244,22 +265,24 @@ describe('accounts-sign-export-flow', () => {
     });
 
     it('cannot be opened by a different key', async () => {
-      const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
-      const res = await http().post(`/v1/accounts/${slug}/export`).set(bearer()).expect(200);
+      const slug = await accountSlug();
+      const t = await inquiryToken({ account: slug });
+      const res = await http().post(`/v1/accounts/${slug}/export`).set(auth(t)).expect(200);
 
       const { privateKey: wrong } = generateKeyPairSync('x25519');
       expect(() => unseal(res.body.sealed, wrong)).toThrow();
     });
 
     it('seals and labels the explicitly selected EVM and SVM private keys', async () => {
-      const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
+      const slug = await accountSlug();
       const id = (await http().get(`/v1/accounts/${slug}/wallets`).set(bearer())).body.wallets[0].id;
+      const t = await inquiryToken({ account: slug, walletId: id });
 
       const exported = await Promise.all(
         (['evm', 'svm'] as const).map((vm) =>
           http()
             .post(`/v1/accounts/${slug}/wallets/${id}/export?vm=${vm}`)
-            .set(bearer())
+            .set(auth(t))
             .expect(200),
         ),
       );
@@ -269,26 +292,35 @@ describe('accounts-sign-export-flow', () => {
       expect(keys.every((key) => key.length > MIN_PRIVATE_KEY_CHARS)).toBe(true);
       expect(keys[0]).not.toBe(keys[1]);
 
-      await http()
-        .post(`/v1/accounts/${slug}/wallets/${id}/export`)
-        .set(bearer())
-        .expect(400);
+      await http().post(`/v1/accounts/${slug}/wallets/${id}/export`).set(auth(t)).expect(400);
     });
 
-    it('refuses without the export scope', async () => {
-      const noExport = (
+    it('refuses export for a token minted without an inquiry key', async () => {
+      const slug = await accountSlug();
+      const noInquiry = (
         await http()
-          .post('/v1/auth/token')
+          .post('/v1/auth/api-key')
           .set(authHeaders())
-          .send({ workspace: 'desk-a', password: WS_PASSWORD, scopes: ['read', 'sign'] })
+          .send({ workspace: 'desk-a', password: WS_PASSWORD, account: slug })
           .expect(201)
       ).body.token;
 
-      const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
       const res = await http()
         .post(`/v1/accounts/${slug}/export`)
-        .set({ authorization: `Bearer ${noExport}` });
+        .set({ authorization: `Bearer ${noInquiry}` });
 
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('scope_denied');
+    });
+
+    it('refuses to export the account seed to a wallet-scoped token', async () => {
+      const slug = await accountSlug();
+      const id = (await http().get(`/v1/accounts/${slug}/wallets`).set(bearer())).body.wallets[0].id;
+      const walletToken = await inquiryToken({ account: slug, walletId: id });
+
+      // A wallet token may export its own private key but never the account-wide
+      // mnemonic — the mnemonic route is closed to wallet tokens.
+      const res = await http().post(`/v1/accounts/${slug}/export`).set(auth(walletToken));
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('scope_denied');
     });

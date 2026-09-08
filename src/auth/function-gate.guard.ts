@@ -1,7 +1,15 @@
-import { CanActivate, ExecutionContext, Injectable, SetMetadata } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  Logger,
+  SetMetadata,
+  createParamDecorator,
+} from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { AppRequest } from '../common/http';
 import { TeeError } from '../common/tee-error';
+import { DENIAL_AUDIT_KEY, type DenialAudit } from './scopes.guard';
 import type { InquiryFunction } from './functionality';
 
 const REQUIRE_FUNCTION_KEY = 'tee:require-function';
@@ -16,6 +24,8 @@ export const RequireFunction = (fn: InquiryFunction) => SetMetadata(REQUIRE_FUNC
 
 @Injectable()
 export class FunctionGateGuard implements CanActivate {
+  private readonly logger = new Logger(FunctionGateGuard.name);
+
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -27,11 +37,43 @@ export class FunctionGateGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<AppRequest>();
     const functions = req.functions ?? [];
     if (!functions.includes(required)) {
+      // A refused export is itself a signal on the highest-consequence route, so
+      // audit it — with the route's own constants only, never the request path.
+      this.auditDenial(context, req, required);
       throw new TeeError(
         'TEE_SCOPE_DENIED',
         `the "${required}" function requires a valid inquiry key`,
+        { required: [required] },
       );
     }
     return true;
   }
+
+  private auditDenial(context: ExecutionContext, req: AppRequest, required: InquiryFunction): void {
+    const marked = this.reflector.getAllAndOverride<DenialAudit | undefined>(DENIAL_AUDIT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!marked) return;
+    this.logger.warn({
+      event: marked.event,
+      outcome: 'DENIED',
+      tenantId: req.tenant?.id,
+      workspaceSlug: req.session?.workspaceSlug,
+      target: marked.target,
+      required: [required],
+      requestId: req.requestId,
+    });
+  }
 }
+
+/**
+ * The bound inquiry key (an X25519 recipient) that sensitive output must seal to.
+ * Only meaningful behind a `@RequireFunction` gate, which guarantees a live key
+ * is present; the handler still asserts it before sealing.
+ */
+export const CurrentInquiryRecipient = createParamDecorator(
+  (_d: unknown, ctx: ExecutionContext): string | undefined => {
+    return ctx.switchToHttp().getRequest<AppRequest>().inquiryKey;
+  },
+);

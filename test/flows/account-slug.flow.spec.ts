@@ -86,6 +86,23 @@ describe('account-slug-flow', () => {
     ).body.token as string;
   }
 
+  // Export now requires a scoped token carrying an inquiry key; mint one for the
+  // account or wallet under test so the slug stays reachable through export too.
+  async function inquiryToken(body: Record<string, unknown>): Promise<string> {
+    return (
+      await http()
+        .post('/v1/auth/api-key')
+        .set(authHeaders())
+        .send({
+          workspace: 'desk-a',
+          password: WS_PASSWORD,
+          inquiryKey: recipient.configured,
+          ...body,
+        })
+        .expect(201)
+    ).body.token as string;
+  }
+
   it('keeps a generated 64-character account reachable through every account path', async () => {
     const reopened = await http().get('/v1/accounts').set(bearer()).expect(200);
     expect(reopened.body.accounts.map((account: { slug: string }) => account.slug)).toEqual(
@@ -125,15 +142,20 @@ describe('account-slug-flow', () => {
       .set(bearer())
       .send({ tags: ['long-slug'] })
       .expect(200);
-    await http().post(`/v1/accounts/${hdSlug}/export`).set(bearer()).expect(200);
+    const hdExport = await inquiryToken({ account: hdSlug });
+    await http()
+      .post(`/v1/accounts/${hdSlug}/export`)
+      .set({ authorization: `Bearer ${hdExport}` })
+      .expect(200);
     const pkWallets = await http()
       .get(`/v1/accounts/${pkSlug}/wallets`)
       .set(bearer())
       .expect(200);
     const pkWalletId = pkWallets.body.wallets[0].id as number;
+    const pkExport = await inquiryToken({ account: pkSlug, walletId: pkWalletId });
     await http()
       .post(`/v1/accounts/${pkSlug}/wallets/${pkWalletId}/export?vm=evm`)
-      .set(bearer())
+      .set({ authorization: `Bearer ${pkExport}` })
       .expect(200);
     await http().delete(`/v1/accounts/${hdSlug}`).set(bearer()).expect(204);
     await http().delete(`/v1/accounts/${pkSlug}`).set(bearer()).expect(204);

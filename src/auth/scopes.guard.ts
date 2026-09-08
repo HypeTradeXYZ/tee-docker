@@ -12,9 +12,10 @@ import { TeeError } from '../common/tee-error';
 
 const SCOPES_KEY = 'tee:required-scopes';
 const ANY_SCOPE_KEY = 'tee:any-workspace-scope';
-const DENIAL_AUDIT_KEY = 'tee:audit-scope-denial';
+/** Shared with FunctionGateGuard so both gates audit a route's refusals alike. */
+export const DENIAL_AUDIT_KEY = 'tee:audit-scope-denial';
 
-interface DenialAudit {
+export interface DenialAudit {
   readonly event: string;
   readonly target: string;
 }

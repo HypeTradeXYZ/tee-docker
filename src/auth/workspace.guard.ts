@@ -96,6 +96,7 @@ export class WorkspaceGuard implements CanActivate {
     // function gate and `whoami` read a single authoritative value.
     req.functions = unlockedFunctions(lease, Date.now());
     if (lease.inquiryExpiresAt !== undefined) req.inquiryExpiresAt = lease.inquiryExpiresAt;
+    if (lease.inquiryKey !== undefined) req.inquiryKey = lease.inquiryKey;
     return true;
   }
 }

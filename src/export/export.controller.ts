@@ -3,8 +3,18 @@ import { teeCoreError } from '../common/tee-error';
 import { z } from 'zod';
 
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
-import { AuditScopeDenial, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
-import { AccountScopeGuard, WalletScopeGuard } from '../auth/scope-binding.guard';
+import { AuditScopeDenial } from '../auth/scopes.guard';
+import {
+  AccountScopeGuard,
+  AccountTokenTarget,
+  WalletScopeGuard,
+  WalletTokenTarget,
+} from '../auth/scope-binding.guard';
+import {
+  CurrentInquiryRecipient,
+  FunctionGateGuard,
+  RequireFunction,
+} from '../auth/function-gate.guard';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { assertValidAccountSlug } from '../session/account-slug';
@@ -23,13 +33,14 @@ type ExportTarget =
  *
  * A leaked signing token moves funds within policy and leaves a trace; a
  * leaked export hands over permanent, offline, irrevocable control. So it is
- * gated three ways: a distinct token scope, a tenant-level enable, and
- * encryption to a key the operator registered by hand — meaning a stolen token
- * yields a blob the thief cannot open.
+ * sealed to the end user's own inquiry key and gated on that key being live:
+ * a token with no unexpired inquiry key cannot export at all, and the blob it
+ * would yield opens only for the holder of the matching private key — never the
+ * operator. There is no tenant-key fallback.
  */
 @Controller()
-@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)
-@RequireScopes('export')
+@UseGuards(WorkspaceGuard, AccountScopeGuard, WalletScopeGuard, FunctionGateGuard)
+@RequireFunction('export')
 export class ExportController {
   private readonly logger = new Logger(ExportController.name);
 
@@ -38,12 +49,17 @@ export class ExportController {
   @Post('accounts/:slug/export')
   @HttpCode(200)
   @AuditScopeDenial('key_export', 'mnemonic')
+  @AccountTokenTarget('account-slug-param')
   async mnemonic(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
+    @CurrentInquiryRecipient() recipient: string | undefined,
     @Param('slug') slug: string,
   ): Promise<{ kind: 'mnemonic'; account: string; sealed: SealedBlob }> {
     const accountSlug = assertValidAccountSlug(slug);
+    // The account seed stays account-level: the mnemonic route is not opened to
+    // wallet tokens (no WalletTokenTarget), so only an account token can reach it.
+    const sealTo = assertRecipient(recipient);
     return this.audited(session, tenant, accountSlug, { kind: 'mnemonic' }, async () => {
       const account = await this.sessions.requireAccount(session, accountSlug);
       if (account.organizationType !== 'HD') {
@@ -52,7 +68,7 @@ export class ExportController {
       return {
         kind: 'mnemonic',
         account: String(account.slug),
-        sealed: seal(account.dumpMnemonic(), tenant.exportPublicKey as string),
+        sealed: seal(account.dumpMnemonic(), sealTo),
       };
     });
   }
@@ -60,9 +76,12 @@ export class ExportController {
   @Post('accounts/:slug/wallets/:id/export')
   @HttpCode(200)
   @AuditScopeDenial('key_export', 'privateKey')
+  @AccountTokenTarget('account-slug-param')
+  @WalletTokenTarget('slug-id-param')
   async privateKey(
     @CurrentSession() session: Session,
     @CurrentTokenTenant() tenant: Tenant,
+    @CurrentInquiryRecipient() recipient: string | undefined,
     @Param('slug') slug: string,
     @Param('id') id: string,
     @Query('vm') vm: unknown,
@@ -76,6 +95,7 @@ export class ExportController {
       throw teeCoreError('PARAMETER_ERROR', 'query parameter vm must be evm or svm');
     }
     const selectedVm = parsedVm.data;
+    const sealTo = assertRecipient(recipient);
 
     return this.audited(
       session,
@@ -99,7 +119,7 @@ export class ExportController {
           account: String(account.slug),
           walletId: wallet.id,
           vm: selectedVm,
-          sealed: seal(wallet.dumpPrivateKey(selectedVm), tenant.exportPublicKey as string),
+          sealed: seal(wallet.dumpPrivateKey(selectedVm), sealTo),
         };
       },
     );
@@ -120,9 +140,8 @@ export class ExportController {
     this.audit('ATTEMPT', session, tenant, accountSlug, target);
     let result: T;
     try {
-      if (!tenant.exportEnabled || !tenant.exportPublicKey) {
-        throw new TeeError('TEE_EXPORT_DISABLED', 'no exportPublicKey registered for this tenant');
-      }
+      // Authorization is the inquiry-key function gate + the scope binding, both
+      // upstream of this handler; there is no tenant-level export key to check.
       result = await operation();
     } catch (err) {
       try {
@@ -159,4 +178,16 @@ export class ExportController {
     if (outcome === 'FAILURE') this.logger.warn(record);
     else this.logger.log(record);
   }
+}
+
+/**
+ * The recipient the export seals to. The `@RequireFunction('export')` gate
+ * guarantees a live inquiry key upstream, so a missing recipient here is a
+ * wiring bug, not a client error — fail closed rather than seal to nothing.
+ */
+function assertRecipient(recipient: string | undefined): string {
+  if (recipient === undefined) {
+    throw new TeeError('TEE_SCOPE_DENIED', 'export requires a valid inquiry key');
+  }
+  return recipient;
 }

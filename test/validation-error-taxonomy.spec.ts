@@ -259,7 +259,7 @@ describe('validation error taxonomy', () => {
       });
     }
     await expect(new ExportController(forbidden as never)
-      .privateKey(session, tenant, 'account-a', '1.5', 'evm')).rejects.toMatchObject({
+      .privateKey(session, tenant, undefined, 'account-a', '1.5', 'evm')).rejects.toMatchObject({
       code: 'PARAMETER_ERROR',
     });
   });

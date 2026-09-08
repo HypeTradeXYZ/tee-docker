@@ -28,4 +28,6 @@ export interface AppRequest extends Request {
   functions?: string[];
   /** When the inquiry key's capability lapses (absolute ms), if any. */
   inquiryExpiresAt?: number;
+  /** The bound inquiry key (an X25519 recipient) sensitive output seals to, if any. */
+  inquiryKey?: string;
 }

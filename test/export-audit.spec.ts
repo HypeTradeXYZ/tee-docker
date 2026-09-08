@@ -28,7 +28,7 @@ describe('export audit boundary', () => {
     'rejects malformed wallet id %p before account lookup or logging',
     async (id) => {
       const { controller, sessions, logger } = setup({});
-      await expect(controller.privateKey(session, tenant, 'desk', id, 'evm')).rejects.toMatchObject({
+      await expect(controller.privateKey(session, tenant, recipient(), 'desk',id, 'evm')).rejects.toMatchObject({
         code: 'PARAMETER_ERROR',
       });
       expect(sessions.requireAccount).not.toHaveBeenCalled();
@@ -41,7 +41,7 @@ describe('export audit boundary', () => {
     'rejects ambiguous or unsupported VM selector %p before account lookup or logging',
     async (vm) => {
       const { controller, sessions, logger } = setup({});
-      await expect(controller.privateKey(session, tenant, 'desk', '0', vm)).rejects.toMatchObject({
+      await expect(controller.privateKey(session, tenant, recipient(), 'desk','0', vm)).rejects.toMatchObject({
         code: 'PARAMETER_ERROR',
       });
       expect(sessions.requireAccount).not.toHaveBeenCalled();
@@ -65,7 +65,7 @@ describe('export audit boundary', () => {
         },
       });
 
-      const result = await controller.privateKey(session, tenant, 'desk', '0', vm);
+      const result = await controller.privateKey(session, tenant, recipient(), 'desk','0', vm);
       expect(dumpPrivateKey).toHaveBeenCalledWith(vm);
       expect(result.vm).toBe(vm);
       expect(logger.log.mock.calls.map(([record]) => record)).toEqual([
@@ -84,7 +84,7 @@ describe('export audit boundary', () => {
       },
     });
 
-    await expect(controller.privateKey(session, tenant, 'desk', '0', 'svm')).rejects.toMatchObject({
+    await expect(controller.privateKey(session, tenant, recipient(), 'desk','0', 'svm')).rejects.toMatchObject({
       code: 'TEE_UNSUPPORTED_FOR_KIND',
     });
     expect(dumpPrivateKey).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe('export audit boundary', () => {
     const byId = jest.fn().mockReturnValue(undefined);
     const { controller, logger } = setup({ wallets: { byId } });
 
-    await expect(controller.privateKey(session, tenant, 'desk', '7', 'evm')).rejects.toBeInstanceOf(
+    await expect(controller.privateKey(session, tenant, recipient(), 'desk','7', 'evm')).rejects.toBeInstanceOf(
       TeeError,
     );
     expect(byId).toHaveBeenCalledWith(7);
@@ -122,30 +122,16 @@ describe('export audit boundary', () => {
     });
   });
 
-  it('records a disabled export as an attempt and one terminal failure without account access', async () => {
-    const { controller, sessions, logger } = setup({});
-    const disabled = { id: 'acme', exportEnabled: false } as never;
-
-    await expect(controller.mnemonic(session, disabled, 'desk')).rejects.toMatchObject({
-      code: 'TEE_EXPORT_DISABLED',
-    });
-    expect(sessions.requireAccount).not.toHaveBeenCalled();
-    expect(logger.log).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.log.mock.calls[0]?.[0]).toMatchObject({ outcome: 'ATTEMPT' });
-    expect(logger.warn.mock.calls[0]?.[0]).toMatchObject({ outcome: 'FAILURE' });
-  });
-
   it('records account and account-kind failures without replacing the original rejection', async () => {
     const lookupError = new Error('lookup failed');
     const lookup = setup({});
     lookup.sessions.requireAccount.mockRejectedValueOnce(lookupError);
-    await expect(lookup.controller.mnemonic(session, tenant, 'desk')).rejects.toBe(lookupError);
+    await expect(lookup.controller.mnemonic(session, tenant, recipient(), 'desk')).rejects.toBe(lookupError);
     expect(lookup.logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
     expect(lookup.logger.warn.mock.calls.map(([record]) => record.outcome)).toEqual(['FAILURE']);
 
     const wrongKind = setup({ slug: 'desk', organizationType: 'PK' });
-    await expect(wrongKind.controller.mnemonic(session, tenant, 'desk')).rejects.toBeInstanceOf(
+    await expect(wrongKind.controller.mnemonic(session, tenant, recipient(), 'desk')).rejects.toBeInstanceOf(
       TeeError,
     );
     expect(wrongKind.logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
@@ -160,7 +146,7 @@ describe('export audit boundary', () => {
       dumpMnemonic: jest.fn().mockReturnValue(secret),
     });
 
-    const result = await controller.mnemonic(session, tenant, 'desk');
+    const result = await controller.mnemonic(session, tenant, recipient(), 'desk');
     expect(result.sealed.ciphertext).toBeTruthy();
     expect(logger.log).toHaveBeenNthCalledWith(1, {
       event: 'key_export',
@@ -199,7 +185,7 @@ describe('export audit boundary', () => {
       },
     });
 
-    const result = await controller.privateKey(session, tenant, 'desk', '0', 'evm');
+    const result = await controller.privateKey(session, tenant, recipient(), 'desk','0', 'evm');
     expect(result.walletId).toBe(0);
     expect(result.vm).toBe('evm');
     expect(logger.log).toHaveBeenNthCalledWith(2, {
@@ -231,7 +217,7 @@ describe('export audit boundary', () => {
       },
     });
 
-    await expect(controller.privateKey(session, tenant, 'desk', '0', 'evm')).rejects.toThrow(
+    await expect(controller.privateKey(session, tenant, recipient(), 'desk','0', 'evm')).rejects.toThrow(
       'key material must not reach the audit record',
     );
     expect(logger.log).toHaveBeenCalledTimes(1);
@@ -249,7 +235,7 @@ describe('export audit boundary', () => {
       organizationType: 'HD',
       dumpMnemonic: jest.fn(() => { throw dumpError; }),
     });
-    await expect(mnemonic.controller.mnemonic(session, tenant, 'desk')).rejects.toBe(dumpError);
+    await expect(mnemonic.controller.mnemonic(session, tenant, recipient(), 'desk')).rejects.toBe(dumpError);
     expect(mnemonic.logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
     expect(mnemonic.logger.warn.mock.calls.map(([record]) => record.outcome)).toEqual(['FAILURE']);
 
@@ -258,7 +244,7 @@ describe('export audit boundary', () => {
       wallets: { byId: () => ({ id: 0, addresses: [] }) },
     });
     await expect(
-      addressless.controller.privateKey(session, tenant, 'desk', '0', 'evm'),
+      addressless.controller.privateKey(session, tenant, recipient(), 'desk','0', 'evm'),
     ).rejects.toMatchObject({ code: 'TEE_UNSUPPORTED_FOR_KIND' });
     expect(addressless.logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
     expect(addressless.logger.warn.mock.calls.map(([record]) => record.outcome)).toEqual(['FAILURE']);
@@ -266,18 +252,17 @@ describe('export audit boundary', () => {
 
   it('records attempt then failure when sealing fails without logging the secret or error', async () => {
     const secret = 'mnemonic material must remain private';
-    const unusableRecipient = {
-      id: 'acme',
-      exportEnabled: true,
-      exportPublicKey: 'x25519:not-a-32-byte-key',
-    } as never;
     const { controller, logger } = setup({
       slug: 'desk',
       organizationType: 'HD',
       dumpMnemonic: jest.fn().mockReturnValue(secret),
     });
 
-    await expect(controller.mnemonic(session, unusableRecipient, 'desk')).rejects.toMatchObject({
+    // A structurally invalid inquiry key reaches seal() and is rejected there,
+    // after the attempt is logged but before any secret can leave.
+    await expect(
+      controller.mnemonic(session, tenant, 'x25519:not-a-32-byte-key', 'desk'),
+    ).rejects.toMatchObject({
       code: 'TEE_EXPORT_DISABLED',
     });
     expect(logger.log).toHaveBeenCalledTimes(1);
@@ -304,7 +289,7 @@ describe('export audit boundary', () => {
       .mockImplementationOnce(() => undefined)
       .mockImplementationOnce(() => { throw auditError; });
 
-    await expect(controller.mnemonic(session, tenant, 'desk')).rejects.toBe(auditError);
+    await expect(controller.mnemonic(session, tenant, recipient(), 'desk')).rejects.toBe(auditError);
     expect(logger.log.mock.calls.map(([record]) => record.outcome)).toEqual([
       'ATTEMPT',
       'SUCCESS',
@@ -321,7 +306,7 @@ describe('export audit boundary', () => {
     });
     logger.warn.mockImplementationOnce(() => { throw new Error('audit sink failed'); });
 
-    await expect(controller.mnemonic(session, tenant, 'desk')).rejects.toBe(operationError);
+    await expect(controller.mnemonic(session, tenant, recipient(), 'desk')).rejects.toBe(operationError);
     expect(logger.log.mock.calls.map(([record]) => record.outcome)).toEqual(['ATTEMPT']);
     expect(logger.warn.mock.calls.map(([record]) => record.outcome)).toEqual(['FAILURE']);
   });
