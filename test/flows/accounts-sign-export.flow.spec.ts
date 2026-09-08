@@ -231,6 +231,7 @@ describe('accounts-sign-export-flow', () => {
           .send({
             workspace: 'desk-a',
             password: WS_PASSWORD,
+            tier: 'unlimited',
             inquiryKey: recipient.configured,
             ...body,
           })
@@ -295,13 +296,38 @@ describe('accounts-sign-export-flow', () => {
       await http().post(`/v1/accounts/${slug}/wallets/${id}/export`).set(auth(t)).expect(400);
     });
 
+    it('refuses export for a Basic-tier token even with an inquiry key', async () => {
+      const slug = await accountSlug();
+      // Basic tier lacks the export scope, so export is denied before the inquiry
+      // gate — export is an Unlimited-tier capability.
+      const basicWithInquiry = (
+        await http()
+          .post('/v1/auth/api-key')
+          .set(authHeaders())
+          .send({
+            workspace: 'desk-a',
+            password: WS_PASSWORD,
+            account: slug,
+            tier: 'basic',
+            inquiryKey: recipient.configured,
+          })
+          .expect(201)
+      ).body.token;
+
+      const res = await http()
+        .post(`/v1/accounts/${slug}/export`)
+        .set({ authorization: `Bearer ${basicWithInquiry}` });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatchObject({ code: 'scope_denied', details: { required: ['export'] } });
+    });
+
     it('refuses export for a token minted without an inquiry key', async () => {
       const slug = await accountSlug();
       const noInquiry = (
         await http()
           .post('/v1/auth/api-key')
           .set(authHeaders())
-          .send({ workspace: 'desk-a', password: WS_PASSWORD, account: slug })
+          .send({ workspace: 'desk-a', password: WS_PASSWORD, account: slug, tier: 'unlimited' })
           .expect(201)
       ).body.token;
 

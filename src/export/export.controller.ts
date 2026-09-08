@@ -3,7 +3,7 @@ import { teeCoreError } from '../common/tee-error';
 import { z } from 'zod';
 
 import { CurrentSession, CurrentTokenTenant, WorkspaceGuard } from '../auth/workspace.guard';
-import { AuditScopeDenial } from '../auth/scopes.guard';
+import { AuditScopeDenial, RequireScopes, ScopesGuard } from '../auth/scopes.guard';
 import {
   AccountScopeGuard,
   AccountTokenTarget,
@@ -39,7 +39,8 @@ type ExportTarget =
  * operator. There is no tenant-key fallback.
  */
 @Controller()
-@UseGuards(WorkspaceGuard, AccountScopeGuard, WalletScopeGuard, FunctionGateGuard)
+@UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard, FunctionGateGuard)
+@RequireScopes('export')
 @RequireFunction('export')
 export class ExportController {
   private readonly logger = new Logger(ExportController.name);

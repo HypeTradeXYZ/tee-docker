@@ -81,7 +81,7 @@ describe('api-key-scope-flow', () => {
   it('mints an Unlimited tier that carries the sign scope', async () => {
     const res = await mintApiKey({ account: acctX, tier: 'unlimited' }).expect(201);
     expect(res.body.tier).toBe('unlimited');
-    expect(res.body.scopes).toEqual(['read', 'write', 'sign']);
+    expect(res.body.scopes).toEqual(['read', 'write', 'sign', 'export']);
     const who = await http().get('/v1/auth/whoami').set(bearer(res.body.token)).expect(200);
     expect(who.body.tier).toBe('unlimited');
   });

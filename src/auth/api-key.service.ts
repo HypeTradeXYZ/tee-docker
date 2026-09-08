@@ -18,7 +18,7 @@ export type ApiKeyTier = 'basic' | 'unlimited';
 
 const TIER_SCOPES: Record<ApiKeyTier, readonly string[]> = {
   basic: ['read', 'write'],
-  unlimited: ['read', 'write', 'sign'],
+  unlimited: ['read', 'write', 'sign', 'export'],
 };
 
 /** Least-privilege default when the tenant does not name a tier. */

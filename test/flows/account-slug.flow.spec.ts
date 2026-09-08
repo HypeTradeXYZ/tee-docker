@@ -96,6 +96,7 @@ describe('account-slug-flow', () => {
         .send({
           workspace: 'desk-a',
           password: WS_PASSWORD,
+          tier: 'unlimited',
           inquiryKey: recipient.configured,
           ...body,
         })
