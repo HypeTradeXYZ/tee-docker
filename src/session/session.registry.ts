@@ -23,6 +23,13 @@ export interface LeaseBinding {
   readonly account?: string;
   /** The single wallet a wallet-scoped token may act on. */
   readonly wallet?: { readonly acct: string; readonly wid: number };
+  /**
+   * An optional inquiry key (an X25519 recipient) that unlocks the sensitive
+   * functionality list for this token and is the recipient its output seals to.
+   */
+  readonly inquiryKey?: string;
+  /** When the inquiry key's capability expires (absolute ms); absent with no key. */
+  readonly inquiryExpiresAt?: number;
 }
 
 export interface TokenLease {
@@ -32,6 +39,10 @@ export interface TokenLease {
   readonly account?: string;
   /** Present only on a wallet-scoped lease. */
   readonly wallet?: { readonly acct: string; readonly wid: number };
+  /** Inquiry key that unlocks this lease's sensitive functionality list, if any. */
+  readonly inquiryKey?: string;
+  /** Absolute ms at which the inquiry key's capability lapses. */
+  readonly inquiryExpiresAt?: number;
   expiresAt: number;
 }
 
@@ -892,6 +903,10 @@ export class SessionRegistry implements OnApplicationShutdown {
       expiresAt: exp * 1000,
       ...(binding.account !== undefined ? { account: binding.account } : {}),
       ...(binding.wallet !== undefined ? { wallet: binding.wallet } : {}),
+      ...(binding.inquiryKey !== undefined ? { inquiryKey: binding.inquiryKey } : {}),
+      ...(binding.inquiryExpiresAt !== undefined
+        ? { inquiryExpiresAt: binding.inquiryExpiresAt }
+        : {}),
     };
     session.leases.set(jti, lease);
     return { session, lease, exp };

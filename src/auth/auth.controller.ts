@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, HttpCode, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { TeeError } from '../common/tee-error';
+import type { AppRequest, CredentialLevel } from '../common/http';
 import { invalidBodyMessage } from '../common/invalid-body';
 import type { Tenant } from '../config/schemas';
 import type { Session } from '../session/session.registry';
@@ -153,6 +154,47 @@ export class AuthController {
     @CurrentLeaseId() jti: string,
   ): Promise<void> {
     await this.sessions.release(session.sid, jti);
+  }
+
+  /**
+   * Report what the calling token can do: its level, scope, and the sensitive
+   * functions its inquiry key (if any) currently unlocks — so a holder that has
+   * forgotten whether the key was minted with an inquiry key can find out.
+   */
+  @Get('whoami')
+  @HttpCode(200)
+  @UseGuards(WorkspaceGuard)
+  @SkipWorkspaceMutex()
+  whoami(
+    @Req() req: AppRequest,
+    @CurrentSession() session: Session,
+    @CurrentLeaseId() jti: string,
+  ): {
+    level: CredentialLevel;
+    workspace: string;
+    account?: string;
+    walletId?: number;
+    scopes: string[];
+    sensitiveEnabled: boolean;
+    functions: string[];
+    inquiryExpiresAt?: string;
+    expiresAt?: string;
+  } {
+    const lease = session.leases.get(jti);
+    const functions = req.functions ?? [];
+    return {
+      level: req.credentialLevel ?? 'workspace',
+      workspace: session.workspaceSlug,
+      ...(req.accountBinding !== undefined ? { account: req.accountBinding } : {}),
+      ...(req.walletBinding !== undefined ? { walletId: req.walletBinding.wid } : {}),
+      scopes: req.scopes ?? [],
+      sensitiveEnabled: functions.length > 0,
+      functions,
+      ...(req.inquiryExpiresAt !== undefined
+        ? { inquiryExpiresAt: new Date(req.inquiryExpiresAt).toISOString() }
+        : {}),
+      ...(lease !== undefined ? { expiresAt: new Date(lease.expiresAt).toISOString() } : {}),
+    };
   }
 }
 

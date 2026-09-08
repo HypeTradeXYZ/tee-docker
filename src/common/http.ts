@@ -24,4 +24,8 @@ export interface AppRequest extends Request {
   accountBinding?: string;
   /** The single wallet a wallet-scoped token is confined to. */
   walletBinding?: { acct: string; wid: number };
+  /** Sensitive functions currently unlocked by a live inquiry key (else empty). */
+  functions?: string[];
+  /** When the inquiry key's capability lapses (absolute ms), if any. */
+  inquiryExpiresAt?: number;
 }

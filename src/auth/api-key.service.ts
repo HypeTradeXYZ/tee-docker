@@ -2,10 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TeeError } from '../common/tee-error';
 import type { Tenant } from '../config/schemas';
 import { SessionRegistry, type LeaseBinding } from '../session/session.registry';
+import { validateRecipient } from '../export/seal';
 import { JwtService } from './jwt.service';
+import { unlockedFunctions, type InquiryFunction } from './functionality';
 
 /** A scoped token carries the same base scopes as a workspace token, confined by its binding. */
 const SCOPED_SCOPES = ['read', 'write', 'sign'];
+
+/** Inquiry-key validity when the tenant does not set one: four hours. */
+const DEFAULT_VALIDATION_SEC = 4 * 60 * 60;
 
 export interface MintApiKeyRequest {
   readonly workspace: string;
@@ -13,6 +18,10 @@ export interface MintApiKeyRequest {
   readonly account: string;
   /** Present for a wallet-scoped key; absent for an account-scoped key. */
   readonly walletId?: number;
+  /** Optional inquiry key (X25519 recipient) that unlocks the sensitive functions. */
+  readonly inquiryKey?: string;
+  /** Inquiry-key validity in seconds; defaults to four hours when omitted. */
+  readonly validationDuration?: number;
 }
 
 export interface ApiKeyResult {
@@ -23,6 +32,12 @@ export interface ApiKeyResult {
   readonly account: string;
   readonly walletId?: number;
   readonly scopes: string[];
+  /** Whether the inquiry key unlocked the sensitive functionality list. */
+  readonly sensitiveEnabled: boolean;
+  /** The functions unlocked by the inquiry key (empty when none). */
+  readonly functions: InquiryFunction[];
+  /** When the inquiry key's capability lapses (absent when no inquiry key). */
+  readonly inquiryExpiresAt?: string;
 }
 
 /**
@@ -41,10 +56,27 @@ export class ApiKeyService {
 
   async mint(tenant: Tenant, req: MintApiKeyRequest): Promise<ApiKeyResult> {
     const level: 'account' | 'wallet' = req.walletId !== undefined ? 'wallet' : 'account';
-    const binding: LeaseBinding =
-      req.walletId !== undefined
-        ? { account: req.account, wallet: { acct: req.account, wid: req.walletId } }
-        : { account: req.account };
+
+    // An inquiry key is optional. When present it is validated up front (a bad
+    // key is a 4xx, not a 5xx) and pins the sensitive functionality list for a
+    // bounded window; when absent, those functions stay locked and any
+    // validationDuration is moot.
+    let inquiry: { readonly inquiryKey: string; readonly inquiryExpiresAt: number } | undefined;
+    if (req.inquiryKey !== undefined) {
+      try {
+        validateRecipient(req.inquiryKey);
+      } catch {
+        throw new TeeError('TEE_INVALID_BODY', 'inquiryKey is not a valid x25519 recipient');
+      }
+      const durationSec = req.validationDuration ?? DEFAULT_VALIDATION_SEC;
+      inquiry = { inquiryKey: req.inquiryKey, inquiryExpiresAt: Date.now() + durationSec * 1000 };
+    }
+
+    const binding: LeaseBinding = {
+      account: req.account,
+      ...(req.walletId !== undefined ? { wallet: { acct: req.account, wid: req.walletId } } : {}),
+      ...(inquiry !== undefined ? inquiry : {}),
+    };
 
     const grant = await this.sessions.create(
       tenant,
@@ -91,9 +123,10 @@ export class ApiKeyService {
         grant.exp,
       );
 
+      const functions = unlockedFunctions(grant.lease, Date.now());
       this.logger.log(
         `api-key minted: tenant=${tenant.id} workspace=${req.workspace} `
-          + `account=${req.account} level=${level}`,
+          + `account=${req.account} level=${level} sensitive=${functions.length > 0}`,
       );
       return {
         token: signed.token,
@@ -103,6 +136,11 @@ export class ApiKeyService {
         account: req.account,
         ...(req.walletId !== undefined ? { walletId: req.walletId } : {}),
         scopes: [...grant.lease.scopes],
+        sensitiveEnabled: functions.length > 0,
+        functions,
+        ...(inquiry !== undefined
+          ? { inquiryExpiresAt: new Date(inquiry.inquiryExpiresAt).toISOString() }
+          : {}),
       };
     } catch (err) {
       await this.sessions.release(grant.session.sid, grant.lease.jti);

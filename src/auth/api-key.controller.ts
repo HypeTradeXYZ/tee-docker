@@ -18,6 +18,16 @@ const MintBody = z
     account: z.string(),
     // When present, the token is scoped to this one wallet; otherwise to the account.
     walletId: z.number().int().nonnegative().safe().optional(),
+    // Optional inquiry key (`x25519:<base64>`) that unlocks the sensitive functions.
+    inquiryKey: z.string().min(1).max(128).optional(),
+    // Inquiry-key validity in seconds (tenant-set); defaults to 4h. Bounded to
+    // keep now+duration a safe integer.
+    validationDuration: z
+      .number()
+      .int()
+      .positive()
+      .max(365 * 24 * 3600)
+      .optional(),
   })
   .strict();
 
@@ -68,6 +78,10 @@ export class ApiKeyController {
       password: parsed.data.password,
       account,
       ...(parsed.data.walletId !== undefined ? { walletId: parsed.data.walletId } : {}),
+      ...(parsed.data.inquiryKey !== undefined ? { inquiryKey: parsed.data.inquiryKey } : {}),
+      ...(parsed.data.validationDuration !== undefined
+        ? { validationDuration: parsed.data.validationDuration }
+        : {}),
     });
   }
 }

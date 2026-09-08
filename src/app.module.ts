@@ -9,6 +9,7 @@ import { AuthController } from './auth/auth.controller';
 import { ApiKeyController } from './auth/api-key.controller';
 import { ApiKeyService } from './auth/api-key.service';
 import { AccountScopeGuard, WalletScopeGuard } from './auth/scope-binding.guard';
+import { FunctionGateGuard } from './auth/function-gate.guard';
 import { JwtService } from './auth/jwt.service';
 import { MintRateLimiter, mintRateLimitFromEnv } from './auth/mint-rate-limit';
 import { ACCOUNT_UNLOCK_CLOCK, AccountUnlockLimiter } from './auth/account-unlock-limiter';
@@ -100,6 +101,7 @@ import {
     // that WorkspaceGuard derives, so they run after it, never globally.
     AccountScopeGuard,
     WalletScopeGuard,
+    FunctionGateGuard,
     ApiKeyService,
     WorkspacesService,
     // Same reason as MintRateLimiter: env files are loaded after AppModule is

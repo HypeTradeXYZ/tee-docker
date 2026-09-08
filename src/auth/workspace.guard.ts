@@ -13,6 +13,7 @@ import type { Tenant } from '../config/schemas';
 import type { LeaseBinding, Session } from '../session/session.registry';
 import { SessionRegistry } from '../session/session.registry';
 import { JwtService } from './jwt.service';
+import { unlockedFunctions } from './functionality';
 
 const SKIP_IDLE_TOUCH = 'tee:skip-workspace-idle-touch';
 export const SkipWorkspaceIdleTouch = () => SetMetadata(SKIP_IDLE_TOUCH, true);
@@ -90,6 +91,11 @@ export class WorkspaceGuard implements CanActivate {
     } else {
       req.credentialLevel = 'workspace';
     }
+
+    // Surface the sensitive functionality unlocked by a live inquiry key, so the
+    // function gate and `whoami` read a single authoritative value.
+    req.functions = unlockedFunctions(lease, Date.now());
+    if (lease.inquiryExpiresAt !== undefined) req.inquiryExpiresAt = lease.inquiryExpiresAt;
     return true;
   }
 }

@@ -7,6 +7,7 @@
   "GET /v1/accounts/:slug/wallets",
   "GET /v1/accounts/:slug/wallets/:id/addresses",
   "GET /v1/addresses/:publicKey/balances",
+  "GET /v1/auth/whoami",
   "GET /v1/health",
   "GET /v1/quota",
   "GET /v1/transactions/:hash",
