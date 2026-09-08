@@ -50,6 +50,7 @@ describe('fixed account unlock episodes', () => {
       idleExpiresAt: 20_000,
       absoluteExpiresAt: 10_000,
       accountTtlSec: 2,
+      lastUsedAt: 0,
       leases: new Map(),
       mutex: new AsyncMutex(),
       storageIdentity: { device: 1, inode: 1, realPath: '/workspace' },

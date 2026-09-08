@@ -86,6 +86,8 @@ export interface Session {
   readonly storageIdentity: WorkspaceStorageIdentity;
   idleExpiresAt: number;
   unusable: boolean;
+  /** Last time a lease on this session was minted or validated; drives LRU eviction. */
+  lastUsedAt: number;
   /** Account unlock episodes and deny tombstones. Live deadlines never slide. */
   readonly accounts: Map<string, AccountCustody>;
   /** Explicit-unlock failure state, shared by every lease on this session. */
@@ -325,6 +327,14 @@ export class SessionRegistry implements OnApplicationShutdown {
     // Validate the authenticated path components at the registry boundary as
     // well as in the storage service.
     workspacePath(this.paths.dataRoot, tenant.id, workspaceSlug);
+    // Only a durable admission may evict a durable pin: a transient workspace
+    // token must never destroy a stay-exposed key to obtain a handle. Reclaim
+    // runs BEFORE taking the key lock so eviction never nests one lifecycle key
+    // inside another. (A racing admission may reclaim a slot this call then loses
+    // to the in-lock capacity gate — a bounded wasted eviction, not a hazard.)
+    if (binding.durable === true && !this.hasReusableSession(tenant.id, workspaceSlug)) {
+      await this.reclaimCapacity(tenant);
+    }
     return this.trackLifecycleJob(this.#lifecycle.runExclusive(key, async () => {
       if (this.#shuttingDown) throw expired('application is shutting down');
 
@@ -400,6 +410,7 @@ export class SessionRegistry implements OnApplicationShutdown {
             mutex: new AsyncMutex(),
             storageIdentity: identity,
             unusable: false,
+            lastUsedAt: now,
             accounts: new Map(),
             unlockFailures: new Map(),
             accountTimer: null,
@@ -594,6 +605,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
 
     if (touchIdle) this.touch(session, idleSec, now);
+    session.lastUsedAt = now;
     return { session, lease };
   }
 
@@ -955,6 +967,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       ...(durable ? { durable: true } : {}),
     };
     session.leases.set(jti, lease);
+    session.lastUsedAt = now;
     return { session, lease, exp };
   }
 
@@ -964,8 +977,12 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
   }
 
+  private chargedEntries(): WorkspaceEntry[] {
+    return [...this.#workspaces.values()].filter((entry) => entry.state !== 'deleting');
+  }
+
   private assertHandleCapacity(tenant: Tenant): void {
-    const charged = [...this.#workspaces.values()].filter((entry) => entry.state !== 'deleting');
+    const charged = this.chargedEntries();
     const tenantCount = charged.filter((entry) => entry.tenantId === tenant.id).length;
     if (tenantCount >= tenant.limits.maxUnlockedWorkspaces) {
       throw capacityError('tenant', tenant.limits.maxUnlockedWorkspaces);
@@ -973,6 +990,65 @@ export class SessionRegistry implements OnApplicationShutdown {
     if (charged.length >= this.capacity.process) {
       throw capacityError('process', this.capacity.process);
     }
+  }
+
+  /**
+   * Make room for a new workspace handle by evicting the least-recently-used
+   * durable pin — the stay-exposed model's coarse capacity policy. Runs BEFORE
+   * create() takes the new key's lifecycle lock, so an eviction (which locks the
+   * victim's key) never nests one lifecycle key inside another and cannot deadlock
+   * two concurrent evicting mints. Best-effort: if nothing durable can be evicted,
+   * the in-lock assertHandleCapacity still throws the ordinary capacity error.
+   */
+  private async reclaimCapacity(tenant: Tenant): Promise<void> {
+    if (this.#shuttingDown) return;
+    const overTenant =
+      this.chargedEntries().filter((e) => e.tenantId === tenant.id).length
+      >= tenant.limits.maxUnlockedWorkspaces;
+    if (overTenant) {
+      await this.evictLruDurable((entry) => entry.tenantId === tenant.id, 'tenant');
+    }
+    // Process-cap eviction stays within the tenant's OWN pins — one tenant must
+    // never evict another's stay-exposed key. If the process is full of other
+    // tenants' pins, this admission falls through to the ordinary capacity error.
+    if (this.chargedEntries().length >= this.capacity.process) {
+      await this.evictLruDurable((entry) => entry.tenantId === tenant.id, 'process');
+    }
+  }
+
+  /** Evict the LRU durable ("stay-exposed") session matching `match`, if any. */
+  private async evictLruDurable(
+    match: (entry: WorkspaceEntry) => boolean,
+    reason: 'tenant' | 'process',
+  ): Promise<void> {
+    let victim: Session | undefined;
+    for (const entry of this.#workspaces.values()) {
+      if (entry.state !== 'active' || !entry.session || !match(entry)) continue;
+      const session = entry.session;
+      if (session.unusable || !this.hasDurableLease(session)) continue;
+      if (!victim || session.lastUsedAt < victim.lastUsedAt) victim = session;
+    }
+    if (!victim) return;
+    this.logger.warn({
+      event: 'durable_key_evicted',
+      reason,
+      tenantId: victim.tenantId,
+      workspaceSlug: victim.workspaceSlug,
+      sid: victim.sid,
+      keys: victim.leases.size,
+    });
+    await this.destroy(victim.sid);
+  }
+
+  /** True when this workspace already has a live session a new lease can reuse. */
+  private hasReusableSession(tenantId: string, workspaceSlug: string): boolean {
+    const entry = this.#workspaces.get(workspaceKey(tenantId, workspaceSlug));
+    return (
+      entry?.state === 'active'
+      && entry.session !== undefined
+      && !entry.session.unusable
+      && !this.sessionExpired(entry.session)
+    );
   }
 
   private entryInUse(entry: WorkspaceEntry, now = this.#now()): boolean {
