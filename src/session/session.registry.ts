@@ -793,7 +793,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       }
       throw expired('session expired during account unlock');
     }
-    if (liveDeadline !== undefined) {
+    if (liveDeadline !== undefined && !this.isAccountPinned(session, slug)) {
       if (now >= liveDeadline) {
         this.expireAccount(session, slug, account);
         throw accountLocked(slug);
@@ -803,6 +803,8 @@ export class SessionRegistry implements OnApplicationShutdown {
       this.scheduleAccountTimer(session);
       return;
     }
+    // A durable lease's account always (re)pins to the far-future custody, even
+    // when it was already live on an ordinary deadline before the key was minted.
     this.recordAccountExposure(session, slug, now);
   }
 

@@ -20,6 +20,8 @@ const MintBody = z
     walletId: z.number().int().nonnegative().safe().optional(),
     // Capability tier; defaults to the least-privilege Basic when omitted.
     tier: z.enum(['basic', 'unlimited']).optional(),
+    // The account's own password, required only for a Cold Vault (own-password) account.
+    accountPassword: z.string().min(1).max(256).optional(),
     // Optional inquiry key (`x25519:<base64>`) that unlocks the sensitive functions.
     inquiryKey: z.string().min(1).max(128).optional(),
     // Inquiry-key validity in seconds (tenant-set); defaults to 4h. Bounded to
@@ -63,7 +65,7 @@ export class ApiKeyController {
       throw new TeeError(
         'TEE_INVALID_BODY',
         invalidBodyMessage(
-          'body must be { workspace, password, account, walletId?, tier? }',
+          'body must be { workspace, password, account, walletId?, tier?, accountPassword?, inquiryKey?, validationDuration? }',
           parsed.error,
           body,
         ),
@@ -81,6 +83,9 @@ export class ApiKeyController {
       account,
       ...(parsed.data.walletId !== undefined ? { walletId: parsed.data.walletId } : {}),
       ...(parsed.data.tier !== undefined ? { tier: parsed.data.tier } : {}),
+      ...(parsed.data.accountPassword !== undefined
+        ? { accountPassword: parsed.data.accountPassword }
+        : {}),
       ...(parsed.data.inquiryKey !== undefined ? { inquiryKey: parsed.data.inquiryKey } : {}),
       ...(parsed.data.validationDuration !== undefined
         ? { validationDuration: parsed.data.validationDuration }

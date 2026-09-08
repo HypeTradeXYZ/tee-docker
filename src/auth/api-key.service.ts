@@ -4,6 +4,7 @@ import type { Tenant } from '../config/schemas';
 import { SessionRegistry, type LeaseBinding } from '../session/session.registry';
 import { validateRecipient } from '../export/seal';
 import { JwtService } from './jwt.service';
+import { AccountUnlockLimiter } from './account-unlock-limiter';
 import { unlockedFunctions, type InquiryFunction } from './functionality';
 
 /**
@@ -37,6 +38,8 @@ export interface MintApiKeyRequest {
   readonly account: string;
   /** Present for a wallet-scoped key; absent for an account-scoped key. */
   readonly walletId?: number;
+  /** The account's own password, relayed by the tenant to unlock a Cold Vault account. */
+  readonly accountPassword?: string;
   /** Capability tier; defaults to the least-privilege Basic when omitted. */
   readonly tier?: ApiKeyTier;
   /** Optional inquiry key (X25519 recipient) that unlocks the sensitive functions. */
@@ -76,6 +79,7 @@ export class ApiKeyService {
   constructor(
     private readonly sessions: SessionRegistry,
     private readonly jwt: JwtService,
+    private readonly accountUnlocks: AccountUnlockLimiter,
   ) {}
 
   async mint(tenant: Tenant, req: MintApiKeyRequest): Promise<ApiKeyResult> {
@@ -120,21 +124,33 @@ export class ApiKeyService {
     // dropped — preserving the global #lifecycle -> session.mutex order and
     // never inverting it (which would risk the closeEntry ABBA deadlock).
     try {
-      await this.sessions.withSession(grant.session, () => {
+      await this.sessions.withSession(grant.session, async () => {
         const account = grant.session.handle.accounts.bySlug(req.account as never);
         if (!account || String(account.slug) !== req.account) {
           throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `account "${req.account}" not found`);
         }
-        if (account.hasOwnPassword) {
-          // A scoped token cannot unlock a Cold Vault account; refuse rather than
-          // mint a token that could never act.
-          throw new TeeError(
-            'TEE_ACCOUNT_LOCKED',
-            'an api key cannot be minted for an account with its own password',
-          );
-        }
+        // Validate the wallet target BEFORE any unlock, so an invalid target
+        // never leaves a Cold Vault account exposed by a mint that then fails.
         if (req.walletId !== undefined && !account.wallets.byId(req.walletId)) {
           throw new TeeError('TEE_ACCOUNT_NOT_FOUND', `wallet ${req.walletId} not found`);
+        }
+        if (account.hasOwnPassword) {
+          // A Cold Vault account has its own password; the tenant relays it to
+          // unlock it as a mint prerequisite. The durable lease then keeps it
+          // pinned unlocked (the password itself is used here and never stored).
+          if (req.accountPassword === undefined) {
+            throw new TeeError(
+              'TEE_ACCOUNT_LOCKED',
+              'accountPassword is required to mint for an account with its own password',
+            );
+          }
+          await this.sessions.unlockAccount(
+            grant.session,
+            req.account,
+            req.accountPassword,
+            this.accountUnlocks,
+            tenant.ttl.workspaceIdleSec,
+          );
         }
       });
 
