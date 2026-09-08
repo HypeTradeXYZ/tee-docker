@@ -166,10 +166,11 @@ describe('api-key-scope-flow', () => {
     expect(sessions.leaseCount).toBe(before);
   });
 
-  it('a scoped token can be revoked and then fails closed', async () => {
+  it('treats DELETE as a no-op for a durable scoped key (restart-only revocation)', async () => {
     const t = (await mintApiKey({ account: acctX }).expect(201)).body.token;
     await http().get(`/v1/accounts/${acctX}`).set(bearer(t)).expect(200);
+    // A minted key is durable: the release is accepted but does not revoke it.
     await http().delete('/v1/auth/token').set(bearer(t)).expect(204);
-    await http().get(`/v1/accounts/${acctX}`).set(bearer(t)).expect(401);
+    await http().get(`/v1/accounts/${acctX}`).set(bearer(t)).expect(200);
   });
 });

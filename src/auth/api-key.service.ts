@@ -53,6 +53,8 @@ export interface ApiKeyResult {
   readonly account: string;
   readonly walletId?: number;
   readonly tier: ApiKeyTier;
+  /** A durable key stays live until process restart; expiresAt is far-future. */
+  readonly durable: boolean;
   readonly scopes: string[];
   /** Whether the inquiry key unlocked the sensitive functionality list. */
   readonly sensitiveEnabled: boolean;
@@ -97,6 +99,9 @@ export class ApiKeyService {
 
     const binding: LeaseBinding = {
       account: req.account,
+      // Every minted key is durable ("stay-exposed"): it pins its workspace and
+      // account unlocked until the process restarts.
+      durable: true,
       ...(req.walletId !== undefined ? { wallet: { acct: req.account, wid: req.walletId } } : {}),
       ...(inquiry !== undefined ? inquiry : {}),
     };
@@ -159,6 +164,7 @@ export class ApiKeyService {
         account: req.account,
         ...(req.walletId !== undefined ? { walletId: req.walletId } : {}),
         tier,
+        durable: true,
         scopes: [...grant.lease.scopes],
         sensitiveEnabled: functions.length > 0,
         functions,

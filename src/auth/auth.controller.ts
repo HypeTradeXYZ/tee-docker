@@ -154,6 +154,9 @@ export class AuthController {
     @CurrentSession() session: Session,
     @CurrentLeaseId() jti: string,
   ): Promise<void> {
+    // A durable key is revoked only by a process restart (coarse revocation), so
+    // an individual release is accepted but intentionally does nothing.
+    if (session.leases.get(jti)?.durable) return;
     await this.sessions.release(session.sid, jti);
   }
 
@@ -176,6 +179,7 @@ export class AuthController {
     account?: string;
     walletId?: number;
     tier?: ApiKeyTier;
+    durable: boolean;
     scopes: string[];
     sensitiveEnabled: boolean;
     functions: string[];
@@ -195,6 +199,7 @@ export class AuthController {
       ...(req.accountBinding !== undefined ? { account: req.accountBinding } : {}),
       ...(req.walletBinding !== undefined ? { walletId: req.walletBinding.wid } : {}),
       ...(scoped ? { tier: tierOf(scopes) } : {}),
+      durable: lease?.durable ?? false,
       scopes,
       sensitiveEnabled: functions.length > 0,
       functions,

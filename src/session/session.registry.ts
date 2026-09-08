@@ -30,6 +30,12 @@ export interface LeaseBinding {
   readonly inquiryKey?: string;
   /** When the inquiry key's capability expires (absolute ms); absent with no key. */
   readonly inquiryExpiresAt?: number;
+  /**
+   * A durable ("stay-exposed") lease pins its session and bound account unlocked
+   * until process restart: neither the workspace TTLs nor the account custody TTL
+   * auto-lock while it is live. In-memory only; a restart voids it.
+   */
+  readonly durable?: boolean;
 }
 
 export interface TokenLease {
@@ -43,6 +49,8 @@ export interface TokenLease {
   readonly inquiryKey?: string;
   /** Absolute ms at which the inquiry key's capability lapses. */
   readonly inquiryExpiresAt?: number;
+  /** A durable lease pins its session + bound account unlocked until restart. */
+  readonly durable?: boolean;
   expiresAt: number;
 }
 
@@ -104,6 +112,14 @@ interface WorkspaceEntry {
 
 const SWEEP_INTERVAL_MS = 30_000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
+/**
+ * The effective deadline a durable lease and its pinned account custody carry.
+ * A hundred years out is "forever until restart" in practice while staying a
+ * safe integer in both seconds and milliseconds. The durability predicates —
+ * not this value — are authoritative; the far deadline only keeps the ordinary
+ * per-lease and per-custody expiry arithmetic from ever firing on a pin.
+ */
+const DURABLE_HORIZON_MS = 100 * 365 * 24 * 3600 * 1000;
 
 /**
  * Owns the one wative-core handle allowed for each tenant/workspace in this
@@ -592,7 +608,10 @@ export class SessionRegistry implements OnApplicationShutdown {
       if (!lease || lease.expiresAt <= this.#now()) throw expired('no lease');
 
       this.touch(session, idleSec);
-      const exp = tokenExpiry(session, this.#now());
+      const now = this.#now();
+      const exp = lease.durable
+        ? Math.floor((now + DURABLE_HORIZON_MS) / 1000)
+        : tokenExpiry(session, now);
       lease.expiresAt = exp * 1000;
       return { session, lease, exp };
     });
@@ -680,6 +699,25 @@ export class SessionRegistry implements OnApplicationShutdown {
     const account = this.findAccount(session, slug);
     const now = this.#now();
     const custody = session.accounts.get(slug);
+    // A durable lease keeps its inherit-password account exposed for the life of
+    // the process. Custody recorded before the key was minted carries an ordinary
+    // deadline, so refresh it here rather than letting a lapsed deadline lock the
+    // account out from under a live durable key. A deliberate manual lock stands.
+    if (
+      this.isAccountPinned(session, slug)
+      && !account.hasOwnPassword
+      && !(custody?.state === 'locked' && custody.reason === 'manual')
+    ) {
+      const wasLocked = account.locked;
+      try {
+        if (account.locked) await account.tryUnlock();
+      } catch (err) {
+        this.failClosedAccountUnlock(session, slug, account, wasLocked);
+        throw err;
+      }
+      this.recordAccountExposure(session, slug, now);
+      return account;
+    }
     if (custody?.state === 'live') {
       if (now < custody.expiresAt && !account.locked) return account;
       if (now < custody.expiresAt && account.locked) {
@@ -783,7 +821,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       }
       throw expired('account exposure began after session expiry');
     }
-    session.accounts.set(slug, { state: 'live', expiresAt: this.accountExpiry(session, now) });
+    session.accounts.set(slug, { state: 'live', expiresAt: this.accountExpiry(session, now, slug) });
     this.scheduleAccountTimer(session);
   }
 
@@ -896,7 +934,14 @@ export class SessionRegistry implements OnApplicationShutdown {
     this.assertLeaseCapacity(session);
     let jti: string;
     do jti = randomUUID(); while (session.leases.has(jti));
-    const exp = tokenExpiry(session, this.#now());
+    const now = this.#now();
+    // A durable lease outlives the workspace TTLs; it carries a far-future
+    // deadline instead of the session's remaining lifetime, and its very
+    // presence pins the session (see hasDurableLease/sessionExpired).
+    const durable = binding.durable === true;
+    const exp = durable
+      ? Math.floor((now + DURABLE_HORIZON_MS) / 1000)
+      : tokenExpiry(session, now);
     const lease: TokenLease = {
       jti,
       scopes: [...scopes],
@@ -907,6 +952,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       ...(binding.inquiryExpiresAt !== undefined
         ? { inquiryExpiresAt: binding.inquiryExpiresAt }
         : {}),
+      ...(durable ? { durable: true } : {}),
     };
     session.leases.set(jti, lease);
     return { session, lease, exp };
@@ -951,7 +997,27 @@ export class SessionRegistry implements OnApplicationShutdown {
   }
 
   private sessionExpired(session: Session, now = this.#now()): boolean {
+    // A live durable lease pins the session: it never idle/absolute-expires while
+    // any stay-exposed key references it. A restart is the only revocation, and
+    // releasing the last durable lease restores ordinary reaping on the next call.
+    if (this.hasDurableLease(session)) return false;
     return now >= session.absoluteExpiresAt || now >= session.idleExpiresAt;
+  }
+
+  /** True while any live durable ("stay-exposed") lease references this session. */
+  private hasDurableLease(session: Session): boolean {
+    for (const lease of session.leases.values()) {
+      if (lease.durable) return true;
+    }
+    return false;
+  }
+
+  /** True when a live durable lease binds this account, directly or via a wallet. */
+  private isAccountPinned(session: Session, slug: string): boolean {
+    for (const lease of session.leases.values()) {
+      if (lease.durable && (lease.account === slug || lease.wallet?.acct === slug)) return true;
+    }
+    return false;
   }
 
   private findAccount(session: Session, slug: string): Account {
@@ -960,7 +1026,12 @@ export class SessionRegistry implements OnApplicationShutdown {
     return account;
   }
 
-  private accountExpiry(session: Session, now: number): number {
+  private accountExpiry(session: Session, now: number, slug?: string): number {
+    // A durable lease's bound account stays unlocked until restart, so it carries
+    // the far-future deadline rather than the ordinary custody window.
+    if (slug !== undefined && this.isAccountPinned(session, slug)) {
+      return now + DURABLE_HORIZON_MS;
+    }
     return Math.min(now + session.accountTtlSec * 1000, session.absoluteExpiresAt);
   }
 
@@ -1001,6 +1072,9 @@ export class SessionRegistry implements OnApplicationShutdown {
     const failures: unknown[] = [];
     for (const [slug, custody] of session.accounts) {
       if (custody.state !== 'live' || now < custody.expiresAt) continue;
+      // A durable lease's bound account never auto-locks; skip it even if its
+      // recorded deadline somehow lapsed.
+      if (this.isAccountPinned(session, slug)) continue;
       const account = session.handle.accounts.bySlug(asSlug(slug));
       if (!account) {
         session.accounts.delete(slug);
@@ -1026,8 +1100,11 @@ export class SessionRegistry implements OnApplicationShutdown {
       || this.#sessions.get(session.sid) !== session
     ) return;
     let earliest = Number.POSITIVE_INFINITY;
-    for (const custody of session.accounts.values()) {
-      if (custody.state === 'live') earliest = Math.min(earliest, custody.expiresAt);
+    for (const [slug, custody] of session.accounts) {
+      // A pinned account has no auto-lock deadline, so it never arms the timer.
+      if (custody.state === 'live' && !this.isAccountPinned(session, slug)) {
+        earliest = Math.min(earliest, custody.expiresAt);
+      }
     }
     if (!Number.isFinite(earliest)) return;
     const delay = Math.min(Math.max(0, earliest - this.#now()), MAX_TIMER_DELAY_MS);

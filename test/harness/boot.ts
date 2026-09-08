@@ -12,6 +12,12 @@ import {
   type RpcHttpsRequester,
 } from '../../src/session/rpc-boundary.service';
 import { ACCOUNT_UNLOCK_CLOCK, type AccountUnlockClock } from '../../src/auth/account-unlock-limiter';
+import {
+  ACCOUNT_CUSTODY_CLOCK,
+  ACCOUNT_CUSTODY_SCHEDULER,
+  type AccountCustodyClock,
+  type AccountCustodyScheduler,
+} from '../../src/session/session.registry';
 import { installRequestIdMiddleware } from '../../src/common/request-id.middleware';
 import { installCors } from '../../src/common/cors';
 import {
@@ -58,6 +64,10 @@ export interface BootOptions {
   readonly accountUnlockClock?: AccountUnlockClock;
   /** Deterministic M-10 creation-window and recreation-cooldown clock. */
   readonly workspaceCreationClock?: WorkspaceCreationClock;
+  /** Deterministic session/account custody clock, for durability + expiry tests. */
+  readonly custodyClock?: AccountCustodyClock;
+  /** Deterministic account-timer scheduler, so custody deadlines fire on demand. */
+  readonly custodyScheduler?: AccountCustodyScheduler;
 }
 
 /**
@@ -129,6 +139,14 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
       builder = builder
         .overrideProvider(WORKSPACE_CREATION_CLOCK)
         .useValue(options.workspaceCreationClock);
+    }
+    if (options.custodyClock) {
+      builder = builder.overrideProvider(ACCOUNT_CUSTODY_CLOCK).useValue(options.custodyClock);
+    }
+    if (options.custodyScheduler) {
+      builder = builder
+        .overrideProvider(ACCOUNT_CUSTODY_SCHEDULER)
+        .useValue(options.custodyScheduler);
     }
     const moduleRef = await builder.compile();
     app = moduleRef.createNestApplication();
