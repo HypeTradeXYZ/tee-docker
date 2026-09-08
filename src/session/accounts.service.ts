@@ -93,6 +93,9 @@ export class AccountsService {
   async drop(session: Session, slug: string): Promise<void> {
     await this.mutateWalletState(session, async () => {
       const account = await this.sessions.requireAccount(session, slug);
+      // A durable key bound to this slug outlives the account; record the deletion
+      // so a later same-slug account inheriting that authority is traceable.
+      this.sessions.auditDurableAccountDeletion(session, slug);
       await account.drop();
       this.sessions.clearAccountCustody(session, slug);
     });

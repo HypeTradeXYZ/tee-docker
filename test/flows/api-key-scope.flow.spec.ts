@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { Logger } from '@nestjs/common';
 import { SessionRegistry } from '../../src/session/session.registry';
 import { authHeaders, boot, type Harness } from '../harness/boot';
 
@@ -164,6 +165,31 @@ describe('api-key-scope-flow', () => {
     const badWallet = await mintApiKey({ account: acctX, walletId: 999 });
     expect(badWallet.status).toBe(404);
     expect(sessions.leaseCount).toBe(before);
+  });
+
+  it('audits deleting an account that a durable key is bound to', async () => {
+    const doomed = (
+      await http()
+        .post('/v1/accounts')
+        .set(bearer(wsToken))
+        .send({ displayName: 'Doomed', kind: 'HD' })
+        .expect(201)
+    ).body.account.slug as string;
+    await mintApiKey({ account: doomed }).expect(201); // a durable key binds the slug
+
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    await http().delete(`/v1/accounts/${doomed}`).set(bearer(wsToken)).expect(204);
+    const audited = warn.mock.calls
+      .map((call) => call[0])
+      .some(
+        (record) =>
+          typeof record === 'object'
+          && record !== null
+          && (record as { event?: string }).event === 'durable_account_deleted'
+          && (record as { accountSlug?: string }).accountSlug === doomed,
+      );
+    warn.mockRestore();
+    expect(audited).toBe(true);
   });
 
   it('treats DELETE as a no-op for a durable scoped key (restart-only revocation)', async () => {

@@ -845,6 +845,27 @@ export class SessionRegistry implements OnApplicationShutdown {
     this.scheduleAccountTimer(session);
   }
 
+  /**
+   * A durable key binds an account by its slug, and a slug is reusable once the
+   * account is dropped. Deleting a durable-bound account therefore lets a later
+   * same-slug account inherit the old key's authority — the accepted residual of
+   * the slug identity anchor. Record the deletion so that rebind is auditable.
+   */
+  auditDurableAccountDeletion(session: Session, slug: string): void {
+    if (!this.isAccountPinned(session, slug)) return;
+    let durableKeys = 0;
+    for (const lease of session.leases.values()) {
+      if (lease.durable && (lease.account === slug || lease.wallet?.acct === slug)) durableKeys += 1;
+    }
+    this.logger.warn({
+      event: 'durable_account_deleted',
+      tenantId: session.tenantId,
+      workspaceSlug: session.workspaceSlug,
+      accountSlug: slug,
+      durableKeys,
+    });
+  }
+
   /** Authoritatively recount one singleton handle and persist its tenant total. */
   async syncWalletCount(session: Session): Promise<void> {
     // A damaged account is missing from the collection, so this count is an
