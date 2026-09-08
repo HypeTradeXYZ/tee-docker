@@ -662,7 +662,7 @@ export class SessionRegistry implements OnApplicationShutdown {
         if (
           this.#sessions.get(session.sid) !== session
           || session.unusable
-          || this.sessionExpired(session, this.#now())
+          || this.sessionHardExpired(session, this.#now())
         ) {
           if (this.#sessions.get(session.sid) === session) session.unusable = true;
           throw expired('session is closing');
@@ -781,7 +781,7 @@ export class SessionRegistry implements OnApplicationShutdown {
       }
     });
     const now = this.#now();
-    if (this.sessionExpired(session, now)) {
+    if (this.sessionHardExpired(session, now)) {
       session.unusable = true;
       try {
         this.expireAccount(session, slug, account);
@@ -822,7 +822,7 @@ export class SessionRegistry implements OnApplicationShutdown {
 
   /** Start custody for an account that core has just returned unlocked. */
   recordAccountExposure(session: Session, slug: string, now = this.#now()): void {
-    if (this.sessionExpired(session, now)) {
+    if (this.sessionHardExpired(session, now)) {
       session.unusable = true;
       const sessionError = expired('account exposure began after session expiry');
       try {
@@ -1101,6 +1101,18 @@ export class SessionRegistry implements OnApplicationShutdown {
     // releasing the last durable lease restores ordinary reaping on the next call.
     if (this.hasDurableLease(session)) return false;
     return now >= session.absoluteExpiresAt || now >= session.idleExpiresAt;
+  }
+
+  /**
+   * Only the absolute (hard-lifetime) deadline ends an already-admitted request.
+   * Idle expiry is enforced at admission (the guard's `get()`); re-applying it to
+   * an in-flight request would kill that request — and the whole shared session —
+   * for the time it spent queued behind the mutex or in the unlock KDF, not for
+   * any client idleness. A durable lease still pins even the hard deadline.
+   */
+  private sessionHardExpired(session: Session, now = this.#now()): boolean {
+    if (this.hasDurableLease(session)) return false;
+    return now >= session.absoluteExpiresAt;
   }
 
   /** True while any live durable ("stay-exposed") lease references this session. */

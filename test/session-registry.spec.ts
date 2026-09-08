@@ -32,9 +32,7 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
     limits: { maxWorkspaces: 3, maxWallets: 10, maxUnlockedWorkspaces },
     ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
     rpc: {},
-    allowDefaultRpc: true,
-    exportEnabled: false,
-    origins: [],
+    allowDefaultRpc: true,    origins: [],
   };
 }
 
@@ -202,9 +200,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-test' } as Paths,
@@ -276,9 +272,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-open-failure-test' } as Paths,
@@ -342,9 +336,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-shutdown-failure-test' } as Paths,
@@ -406,9 +398,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-failure-test' } as Paths,
@@ -482,9 +472,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-shutdown-test' } as Paths,
@@ -528,9 +516,7 @@ describe('SessionRegistry close failure', () => {
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     };
     const handle = {
       accounts: [],
@@ -750,6 +736,40 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
     expect(queuedCore).not.toHaveBeenCalled();
     expect(events).toEqual(['active', 'remove']);
     expect(lock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not idle-expire an admitted request, nor kill the shared session, when it queued behind the mutex', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const grant = await registry.create(tenant, 'desk-a', 'password', ['write']);
+    // The idle deadline lapsed while the request waited on the mutex; the hard
+    // (absolute) deadline is still in the future. The guard already admitted it.
+    grant.session.idleExpiresAt = 0;
+
+    const ran = jest.fn();
+    await expect(
+      registry.withSession(grant.session, async () => { ran(); return 'ok'; }),
+    ).resolves.toBe('ok');
+    expect(ran).toHaveBeenCalledTimes(1);
+    expect(grant.session.unusable).toBe(false);
+    // The session was not torn down for everyone: a later operation still runs.
+    await expect(registry.withSession(grant.session, async () => 'again')).resolves.toBe('again');
+    await registry.onApplicationShutdown();
+  });
+
+  it('still refuses an in-flight request once the absolute deadline has passed', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const grant = await registry.create(tenant, 'desk-a', 'password', ['write']);
+    (grant.session as { absoluteExpiresAt: number }).absoluteExpiresAt = 0;
+
+    const ran = jest.fn();
+    await expect(
+      registry.withSession(grant.session, async () => { ran(); return 'nope'; }),
+    ).rejects.toMatchObject({ code: 'TEE_SESSION_EXPIRED' });
+    expect(ran).not.toHaveBeenCalled();
+    expect(grant.session.unusable).toBe(true); // hard-expired sessions are torn down
+    await registry.onApplicationShutdown();
   });
 
   it('serializes provisioning behind the complete delete callback', async () => {

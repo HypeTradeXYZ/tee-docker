@@ -87,9 +87,7 @@ describe('RPC egress boundary', () => {
       limits: { maxWorkspaces: 1, maxWallets: 1, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 60, workspaceAbsoluteSec: 120, accountAbsoluteSec: 30 },
       rpc: { ethereum: 'https://127.0.0.1/internal' },
-      allowDefaultRpc: false,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: false,      origins: [],
     };
     const service = boundary(
       async () => [{ address: '8.8.8.8', family: 4 }],

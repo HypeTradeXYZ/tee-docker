@@ -117,8 +117,9 @@ curl -X POST "$API_URL/accounts" \
   -d '{"displayName":"Main wallet","kind":"HD"}'
 ```
 
-The service does not return a newly generated recovery phrase in plain text. Encrypted export must
-be enabled by the operator and requested with an `export`-scoped token.
+The service does not return a newly generated recovery phrase in plain text. Export requires an
+Unlimited-tier scoped API key carrying a live inquiry key, and the result is sealed to that key — the
+end user's own, which the service never holds.
 
 Account display names are cleaned before use and must be 4–64 characters afterward. The service
 returns a lowercase account ID (`slug`) derived from the name; always save and use that returned
@@ -135,6 +136,8 @@ All routes use the `/v1` prefix.
 | View current usage limits | `GET /quota` | Tenant credentials |
 | Raise a tenant's limits | `POST /admin/tenants/:id/limits` | Super-admin key |
 | Request a workspace token | `POST /auth/token` | Tenant credentials |
+| Mint a scoped API key for an end user | `POST /auth/api-key` | Tenant credentials |
+| Introspect the calling token | `GET /auth/whoami` | Any token |
 | Refresh a token | `POST /auth/token/refresh` | Workspace token |
 | Revoke a token | `DELETE /auth/token` | Workspace token |
 | View the current workspace | `GET /workspace` | Workspace token |
@@ -147,11 +150,12 @@ All routes use the `/v1` prefix.
 | Sign a message | `POST /sign/message` | `sign` scope |
 | Sign EIP-712 typed data | `POST /sign/typed-data` | `sign` scope |
 | Build, simulate, send, or check a transaction | `/transactions` | `sign` scope |
-| Export an encrypted recovery phrase or private key | Account export routes | `export` scope |
+| Export an encrypted recovery phrase or private key | Account export routes | Unlimited API key + inquiry key |
 
-The default workspace token includes `read`, `write`, and `sign`. Request `export` explicitly only
-when the tenant has export enabled.
-When exporting a private key, add `?vm=evm` or `?vm=svm`; the response repeats the selection.
+The default workspace token includes `read`, `write`, and `sign`. Export is not a workspace-token
+operation: it needs an Unlimited-tier scoped API key (`POST /auth/api-key`) minted with the end user's
+inquiry key, and seals to that key. When exporting a private key, add `?vm=evm` or `?vm=svm`; the
+response repeats the selection.
 
 ## Signing
 

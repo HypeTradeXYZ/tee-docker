@@ -22,9 +22,7 @@ function tenant(overrides: Partial<Tenant> = {}): Tenant {
     limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 8 },
     ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 28_800, accountAbsoluteSec: 300 },
     rpc: {},
-    allowDefaultRpc: true,
-    exportEnabled: false,
-    origins: [],
+    allowDefaultRpc: true,    origins: [],
     ...overrides,
   };
 }

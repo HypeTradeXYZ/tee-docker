@@ -169,6 +169,46 @@ describe('fixed account unlock episodes', () => {
     expect(session.accounts.get('shared')).toEqual({ state: 'locked', reason: 'expired' });
   });
 
+  it('a slow unlock KDF that outlasts the idle window does not kill the shared session', async () => {
+    (session as { absoluteExpiresAt: number }).absoluteExpiresAt = 1_000_000; // hard deadline still far off
+    const limiter = {
+      verify: async <T>(_s: unknown, _slug: string, attempt: () => T | Promise<T>) => attempt(),
+    } as unknown as AccountUnlockLimiter;
+    // The KDF runs long enough that the (just-touched) idle deadline lapses during it.
+    tryUnlock.mockImplementation(async () => { now += 200_000; locked = false; return account; });
+
+    await expect(registry.unlockAccount(session, 'shared', 'correct', limiter, 30)).resolves.toBeUndefined();
+    expect(session.unusable).toBe(false);
+    expect(session.accounts.get('shared')).toMatchObject({ state: 'live' });
+  });
+
+  it('recordAccountExposure does not kill the session when only idle has lapsed', async () => {
+    session.idleExpiresAt = 500;
+    (session as { absoluteExpiresAt: number }).absoluteExpiresAt = 100_000;
+    expect(() => registry.recordAccountExposure(session, 'shared', 2_000)).not.toThrow();
+    expect(session.unusable).toBe(false);
+    expect(session.accounts.get('shared')).toMatchObject({ state: 'live' });
+  });
+
+  it('recordAccountExposure still tears the session down past the absolute deadline', async () => {
+    (session as { absoluteExpiresAt: number }).absoluteExpiresAt = 1_000;
+    expect(() => registry.recordAccountExposure(session, 'shared', 2_000)).toThrow();
+    expect(session.unusable).toBe(true);
+  });
+
+  it('an unlock KDF that crosses the absolute deadline still tears the session down', async () => {
+    const limiter = {
+      verify: async <T>(_s: unknown, _slug: string, attempt: () => T | Promise<T>) => attempt(),
+    } as unknown as AccountUnlockLimiter;
+    // absoluteExpiresAt is 10_000 (beforeEach); the KDF pushes the clock past it.
+    tryUnlock.mockImplementation(async () => { now = 20_000; locked = false; return account; });
+
+    await expect(registry.unlockAccount(session, 'shared', 'correct', limiter, 30))
+      .rejects.toMatchObject({ code: 'TEE_SESSION_EXPIRED' });
+    expect(session.unusable).toBe(true);
+    expect(lock).toHaveBeenCalled(); // the exposed account was zeroized
+  });
+
   it('requires explicit authentication for a never-exposed own-password account', async () => {
     Object.defineProperty(account, 'hasOwnPassword', { value: true });
     await expect(registry.requireAccount(session, 'shared')).rejects.toMatchObject({
@@ -271,9 +311,7 @@ describe('account expiry scheduling', () => {
       limits: { maxWorkspaces: 1, maxWallets: 10, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 100, workspaceAbsoluteSec: 100, accountAbsoluteSec: 1 },
       rpc: {},
-      allowDefaultRpc: true,
-      exportEnabled: false,
-      origins: [],
+      allowDefaultRpc: true,      origins: [],
     } as const;
     const draft = {
       tenants: {
@@ -377,7 +415,7 @@ describe('account expiry scheduling', () => {
       id: 'acme', apiKey: 'ak_test_0123456789abcdef', secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 1, maxWallets: 1, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 100, workspaceAbsoluteSec: 100, accountAbsoluteSec: 1 },
-      rpc: {}, allowDefaultRpc: true, exportEnabled: false, origins: [],
+      rpc: {}, allowDefaultRpc: true, origins: [],
     } as const;
     const draft = { tenants: { acme: { walletTotal: 0, workspaces: [
       { slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 },

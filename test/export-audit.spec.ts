@@ -10,11 +10,7 @@ function recipient(): string {
 
 describe('export audit boundary', () => {
   const session = { workspaceSlug: 'desk-a' } as never;
-  const tenant = {
-    id: 'acme',
-    exportEnabled: true,
-    exportPublicKey: recipient(),
-  } as never;
+  const tenant = { id: 'acme' } as never;
 
   function setup(account: unknown) {
     const sessions = { requireAccount: jest.fn().mockResolvedValue(account) };
@@ -263,7 +259,7 @@ describe('export audit boundary', () => {
     await expect(
       controller.mnemonic(session, tenant, 'x25519:not-a-32-byte-key', 'desk'),
     ).rejects.toMatchObject({
-      code: 'TEE_EXPORT_DISABLED',
+      code: 'TEE_INVALID_BODY',
     });
     expect(logger.log).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledTimes(1);

@@ -50,11 +50,15 @@ export interface Harness {
   /** Isolated root for this flow's config, state, and workspace data. */
   readonly baseDir: string;
   close(): Promise<void>;
+  /** Close the app + restore env but KEEP the data root, so it can be rebooted. */
+  closeKeepingData(): Promise<void>;
 }
 
 export interface BootOptions {
   /** Replaces the default tenant list. */
   readonly tenants?: readonly unknown[];
+  /** Reuse an existing data root (a restart) instead of a fresh temp dir. */
+  readonly baseDir?: string;
   /** Extra environment applied before the module is built. */
   readonly env?: Readonly<Record<string, string>>;
   /** Deterministic H-01 resolver/request transport overrides. */
@@ -78,7 +82,7 @@ export interface BootOptions {
  * (`maxWorkers: 1`) because they also share `process.env`.
  */
 export async function boot(options: BootOptions = {}): Promise<Harness> {
-  const baseDir = mkdtempSync(join(tmpdir(), 'tee-docker-flow-'));
+  const baseDir = options.baseDir ?? mkdtempSync(join(tmpdir(), 'tee-docker-flow-'));
   const configDir = join(baseDir, 'config');
   mkdirSync(configDir, { recursive: true });
 
@@ -171,5 +175,23 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
       restoreEnv();
       rmSync(baseDir, { recursive: true, force: true });
     },
+    async closeKeepingData(): Promise<void> {
+      await app.close();
+      restoreEnv();
+    },
   };
+}
+
+/**
+ * Simulate a process restart: tear down the running app (voiding every in-memory
+ * session and durable pin) and boot a fresh one on the SAME data root, so
+ * persisted workspaces and accounts survive while nothing in memory does.
+ */
+export async function restart(
+  harness: Harness,
+  options: Omit<BootOptions, 'baseDir'> = {},
+): Promise<Harness> {
+  const baseDir = harness.baseDir;
+  await harness.closeKeepingData();
+  return boot({ ...options, baseDir });
 }

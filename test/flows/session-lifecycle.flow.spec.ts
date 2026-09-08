@@ -78,10 +78,10 @@ describe('session-lifecycle-flow', () => {
       expect(Date.parse(res.body.expiresAt)).toBeGreaterThan(Date.now());
     });
 
-    it('refuses the export scope when the tenant has no registered key', async () => {
+    it('grants the export scope at mint; export itself needs an inquiry key', async () => {
       const res = await mintToken('desk-a', WS_PASSWORD, ['read', 'export']);
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('export_disabled');
+      expect(res.status).toBe(201);
+      expect(res.body.scopes).toContain('export');
     });
 
     it('refuses an unknown scope', async () => {

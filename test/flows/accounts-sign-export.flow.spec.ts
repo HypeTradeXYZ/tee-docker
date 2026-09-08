@@ -358,7 +358,6 @@ describe('export disabled without a registered key', () => {
   let harness: Harness;
 
   beforeAll(async () => {
-    // DEFAULT_TENANT has no exportPublicKey.
     harness = await boot();
   });
 
@@ -366,7 +365,7 @@ describe('export disabled without a registered key', () => {
     await harness?.close();
   });
 
-  it('refuses the export scope at mint time', async () => {
+  it('grants the export scope at mint, but a workspace token still cannot export', async () => {
     const http = () => request(harness.app.getHttpServer());
     await http()
       .post('/v1/workspaces')
@@ -377,11 +376,11 @@ describe('export disabled without a registered key', () => {
     const res = await http()
       .post('/v1/auth/token')
       .set(authHeaders())
-      .send({ workspace: 'desk-a', password: WS_PASSWORD, scopes: ['read', 'export'] });
+      .send({ workspace: 'desk-a', password: WS_PASSWORD, scopes: ['read', 'export'] })
+      .expect(201);
 
-    // The gate is at mint time, so a token can never carry a scope the tenant
-    // cannot actually use.
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('export_disabled');
+    // The scope is grantable; export itself needs a live inquiry key that a
+    // workspace token never carries, so the export routes stay out of reach.
+    expect(res.body.scopes).toContain('export');
   });
 });

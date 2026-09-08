@@ -25,21 +25,21 @@ export interface SealedBlob {
 const RAW_X25519_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
 
 /**
- * Parse `x25519:<base64>` from the operator config into a KeyObject.
+ * Parse an `x25519:<base64>` recipient (an end user's inquiry key) into a KeyObject.
  *
  * Accepts a raw 32-byte X25519 public key and wraps it in the SPKI header
- * Node requires, so operators can paste the key material itself rather than
+ * Node requires, so a client can supply the key material itself rather than
  * hand-assembling DER.
  */
 export function parseRecipient(configured: string): { key: ReturnType<typeof createPublicKey>; raw: Buffer } {
   const [scheme, encoded] = configured.split(':', 2);
   if (scheme !== 'x25519' || !encoded || configured !== `x25519:${encoded}`) {
-    throw new TeeError('TEE_EXPORT_DISABLED', 'exportPublicKey must be "x25519:<base64>"');
+    throw new TeeError('TEE_INVALID_BODY', 'recipient must be "x25519:<base64>"');
   }
 
   const raw = Buffer.from(encoded, 'base64');
   if (raw.length !== 32 || raw.toString('base64') !== encoded) {
-    throw new TeeError('TEE_EXPORT_DISABLED', 'exportPublicKey must decode to 32 bytes');
+    throw new TeeError('TEE_INVALID_BODY', 'recipient must decode to 32 bytes');
   }
 
   const key = createPublicKey({
@@ -50,7 +50,7 @@ export function parseRecipient(configured: string): { key: ReturnType<typeof cre
   return { key, raw };
 }
 
-/** Prove at boot that an operator recipient is both canonical and usable. */
+/** Prove that an `x25519:<base64>` recipient is both canonical and usable. */
 export function validateRecipient(configured: string): void {
   try {
     const { key } = parseRecipient(configured);
@@ -61,7 +61,7 @@ export function validateRecipient(configured: string): void {
     }
   } catch {
     // Config loading must never echo the key or an OpenSSL diagnostic.
-    throw new Error('exportPublicKey is not a usable X25519 recipient');
+    throw new Error('recipient is not a usable X25519 recipient');
   }
 }
 

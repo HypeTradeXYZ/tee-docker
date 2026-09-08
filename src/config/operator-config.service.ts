@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { Injectable } from '@nestjs/common';
 import { TenantsConfigSchema, TtlSchema, type Limits, type RawTenant, type Tenant } from './schemas';
 import type { Paths } from './paths';
-import { validateRecipient } from '../export/seal';
 
 /**
  * The hand-edited operator config: who may call, and how much.
@@ -73,17 +72,14 @@ export class OperatorConfigService {
 
 /** Resolve every optional field once, so no caller has to know the defaults. */
 function normalizeTenant(raw: RawTenant): Tenant {
-  if (raw.exportPublicKey !== undefined) validateRecipient(raw.exportPublicKey);
   return {
     id: raw.id,
     apiKey: raw.apiKey,
     secretHash: raw.secretHash,
-    exportPublicKey: raw.exportPublicKey,
     limits: raw.limits,
     ttl: raw.ttl ?? TtlSchema.parse({}),
     rpc: raw.rpc ?? {},
     allowDefaultRpc: raw.allowDefaultRpc ?? true,
-    exportEnabled: raw.exportPublicKey !== undefined,
     origins: raw.origins ?? [],
   };
 }

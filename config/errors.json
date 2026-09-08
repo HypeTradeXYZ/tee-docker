@@ -34,7 +34,6 @@
     "TEE_SESSION_EXPIRED": { "status": 401, "code": "session_expired" },
     "TEE_QUOTA_WORKSPACES": { "status": 409, "code": "quota_workspaces_exceeded" },
     "TEE_QUOTA_WALLETS": { "status": 409, "code": "quota_wallets_exceeded" },
-    "TEE_EXPORT_DISABLED": { "status": 403, "code": "export_disabled" },
     "TEE_RPC_NOT_CONFIGURED": { "status": 409, "code": "rpc_not_configured", "exposeDetails": true },
     "TEE_UNLOCK_CAPACITY": { "status": 429, "code": "mint_rate_limited", "exposeDetails": true },
     "TEE_WORKSPACE_EXISTS": { "status": 409, "code": "workspace_exists" },

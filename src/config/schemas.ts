@@ -70,11 +70,6 @@ export const TenantSchema = z.object({
   apiKey: z.string().min(16),
   /** HMAC-SHA256 of the API secret under the server key. Deliberately not a slow KDF: it is verified on every request, and the secret is high-entropy rather than user-chosen. */
   secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),
-  /** Absent disables export for this tenant. Doubles as the enable flag. */
-  exportPublicKey: z
-    .string()
-    .regex(/^x25519:[A-Za-z0-9+/]{43}=$/, 'expected a canonical X25519 public key')
-    .optional(),
   limits: LimitsSchema,
   ttl: TtlSchema.optional(),
   /** Seeds a new workspace's network registry at creation. */
@@ -221,11 +216,9 @@ export interface Tenant {
   readonly id: string;
   readonly apiKey: string;
   readonly secretHash: string;
-  readonly exportPublicKey?: string;
   readonly limits: Limits;
   readonly ttl: Ttl;
   readonly rpc: Readonly<Record<string, string>>;
   readonly allowDefaultRpc: boolean;
-  readonly exportEnabled: boolean;
   readonly origins: readonly string[];
 }

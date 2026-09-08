@@ -63,7 +63,7 @@ export class AuthController {
     }
 
     const workspace = assertValidSlug(parsed.data.workspace);
-    const scopes = resolveScopes(parsed.data.scopes, tenant);
+    const scopes = resolveScopes(parsed.data.scopes);
     if (!this.sessions.knowsWorkspace(tenant.id, workspace)) {
       throw new TeeError('TEE_WORKSPACE_NOT_FOUND', `workspace "${workspace}" not found`);
     }
@@ -211,7 +211,7 @@ export class AuthController {
   }
 }
 
-function resolveScopes(requested: string[] | undefined, tenant: Tenant): string[] {
+function resolveScopes(requested: string[] | undefined): string[] {
   if (!requested) return [...DEFAULT_SCOPES];
 
   const unknown = requested.filter((s) => !GRANTABLE_SCOPES.has(s));
@@ -223,12 +223,6 @@ function resolveScopes(requested: string[] | undefined, tenant: Tenant): string[
       'TEE_INVALID_BODY',
       `requested scopes are not supported; grantable scopes are ${[...GRANTABLE_SCOPES].join(', ')}`,
     );
-  }
-
-  // Export is refused at mint time when the tenant has no registered public
-  // key, so a token can never carry a scope the tenant cannot actually use.
-  if (requested.includes('export') && !tenant.exportEnabled) {
-    throw new TeeError('TEE_EXPORT_DISABLED', 'no exportPublicKey registered for this tenant');
   }
   return [...new Set(requested)];
 }
