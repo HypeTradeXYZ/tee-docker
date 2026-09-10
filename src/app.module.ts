@@ -34,6 +34,7 @@ import { BalancesController } from './session/balances.controller';
 import { BalanceCapabilityGuard } from './session/balance-capability';
 import { ScopesGuard } from './auth/scopes.guard';
 import { HealthController } from './health/health.controller';
+import { ShutdownState } from './health/shutdown.state';
 import {
   KDF_CHECK_CONFIG,
   KDF_PROBE_RUNNER,
@@ -74,6 +75,7 @@ import {
   controllers: [HealthController, WorkspacesController, AuthController, ApiKeyController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
   providers: [
     { provide: SERVER_KEY, useFactory: () => ServerKeyProvider.fromEnv() },
+    ShutdownState,
     TenantGuard,
     WorkspaceGuard,
     JwtService,

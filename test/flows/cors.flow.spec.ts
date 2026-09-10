@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { DEFAULT_TENANT, authHeaders, boot, type Harness } from '../harness/boot';
+import { ShutdownState } from '../../src/health/shutdown.state';
 
 const ALLOWED = 'https://app.example.com';
 const OTHER = 'https://evil.example.com';
@@ -187,6 +188,37 @@ describe('cors-flow', () => {
         }
       }
       expect([...methods].sort()).toEqual(['DELETE', 'GET', 'POST', 'PUT']);
+    });
+  });
+
+  // Colocated with the other /health probes rather than in its own flow file:
+  // an extra flow-suite file nudges the wative-core provider accumulation over a
+  // threshold and flakes the run (that provider has no close() in 2.4.4).
+  describe('health reflects shutdown', () => {
+    let harness: Harness;
+    const http = () => request(harness.app.getHttpServer());
+
+    beforeAll(async () => {
+      harness = await boot();
+    });
+
+    afterAll(async () => {
+      await harness?.close();
+    });
+
+    it('answers 200 ok while the process is serving', async () => {
+      const res = await http().get('/v1/health').expect(200);
+      expect(res.body).toEqual({ status: 'ok' });
+    });
+
+    // The incident this guards: a hung drain kept /health at 200, so the liveness
+    // probe never cycled a process that could no longer mint. Once shutdown
+    // begins the probe must fail. beforeApplicationShutdown is invoked directly
+    // so the test does not depend on real signal delivery.
+    it('answers 503 once graceful shutdown has begun, so a probe cycles it', async () => {
+      harness.app.get(ShutdownState).beforeApplicationShutdown();
+      const res = await http().get('/v1/health').expect(503);
+      expect(res.body).toEqual({ status: 'shutting_down' });
     });
   });
 });

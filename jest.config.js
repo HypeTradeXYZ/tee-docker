@@ -20,8 +20,9 @@ module.exports = {
     'node_modules/\\.pnpm/(?!uuid|@noble\\+|@scure\\+|micro-ed25519-hdkey|bs58|base-x)',
   ],
   testEnvironment: 'node',
-  // Flows boot a real Nest app and touch the filesystem — never run them
-  // concurrently against a shared data root.
+  // One worker, never concurrent: the RPC-backoff flows assert real wall-clock
+  // timing and time out under the CPU contention of parallel workers. (Data
+  // roots are per-boot unique, so that is the reason, not a shared root.)
   maxWorkers: 1,
   // One long-lived worker runs every suite, so leaked module state and
   // retained fixtures accumulate until the default heap aborts the run.
