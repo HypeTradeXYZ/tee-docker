@@ -16,7 +16,7 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
 } from '@nestjs/common';
-import { BUILTIN_NETWORKS, Network, type Workspace } from 'wative-core';
+import { BUILTIN_NETWORKS, Network, closeAllRpcClients, type Workspace } from 'wative-core';
 import { SERVER_KEY } from '../auth/server-key';
 import { TeeError } from '../common/tee-error';
 import { OperatorConfigService } from '../config/operator-config.service';
@@ -148,19 +148,27 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
     this.relayOrigin = null;
     this.activeCapabilities.clear();
     this.workspaceAbortBlocks.clear();
-    if (!server) return;
-    if (this.activeRequests > 0) {
-      this.shutdownDrain = new Promise<void>((resolve) => {
-        this.resolveShutdownDrain = resolve;
+    try {
+      if (!server) return;
+      if (this.activeRequests > 0) {
+        this.shutdownDrain = new Promise<void>((resolve) => {
+          this.resolveShutdownDrain = resolve;
+        });
+      }
+      for (const controller of this.outboundAborts.keys()) controller.abort();
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+        server.closeAllConnections();
       });
+      await this.shutdownDrain;
+      this.workspaceDrainWaiters.clear();
+    } finally {
+      // Release wative-core's process-global RPC client cache (populated by the tx
+      // path); neither lock() nor close() clears it, and its keys can carry tenant
+      // endpoint credentials. Drop them after relay traffic has drained, so a
+      // late request cannot repopulate the cache before the process exits.
+      await closeAllRpcClients();
     }
-    for (const controller of this.outboundAborts.keys()) controller.abort();
-    await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-      server.closeAllConnections();
-    });
-    await this.shutdownDrain;
-    this.workspaceDrainWaiters.clear();
   }
 
   /** Validate a newly supplied external target before it can be persisted. */
