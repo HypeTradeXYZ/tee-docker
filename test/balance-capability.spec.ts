@@ -9,11 +9,11 @@ import { BalancesController } from '../src/session/balances.controller';
 describe('balance capability gate', () => {
   it('trips whenever the installed dependency moves beyond the audited build', () => {
     expect(INSTALLED_BALANCE_CORE_VERSION).toBe(AUDITED_BALANCE_CORE_VERSION);
-    expect(AUDITED_BALANCE_CORE_VERSION).toBe('2.4.6');
+    expect(AUDITED_BALANCE_CORE_VERSION).toBe('2.4.7');
   });
 
   it('keeps audited and unknown core versions fail closed', () => {
-    expect(balanceCapabilityAvailable('2.4.6')).toBe(false);
+    expect(balanceCapabilityAvailable('2.4.7')).toBe(false);
     expect(balanceCapabilityAvailable('2.4.5')).toBe(false);
     expect(balanceCapabilityAvailable(undefined)).toBe(false);
   });
