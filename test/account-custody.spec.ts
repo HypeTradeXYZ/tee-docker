@@ -289,6 +289,7 @@ describe('account expiry scheduling', () => {
     const handle = {
       accounts,
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const callbacks: Array<{ callback: () => void; delay: number; cleared: boolean }> = [];
     const timers = new Map<NodeJS.Timeout, number>();
@@ -410,6 +411,7 @@ describe('account expiry scheduling', () => {
     const handle = {
       accounts,
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const tenant = {
       id: 'acme', apiKey: 'ak_test_0123456789abcdef', secretHash: '0'.repeat(64),

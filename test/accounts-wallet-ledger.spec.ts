@@ -110,6 +110,7 @@ describe('wallet ledger serialization', () => {
     const handle = {
       accounts,
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const open = jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
 
@@ -202,6 +203,7 @@ describe('wallet ledger serialization', () => {
     const first = {
       accounts: staleAccounts,
       lock: jest.fn(async () => firstLocked()),
+      close: jest.fn(async () => firstLocked()),
     } as unknown as Workspace;
     const reopenedWallets: unknown[] = [{}];
     const reopenedAccount = {
@@ -221,6 +223,7 @@ describe('wallet ledger serialization', () => {
     const second = {
       accounts: reopenedAccounts,
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const open = jest
       .spyOn(Workspace, 'open')
@@ -289,6 +292,7 @@ describe('wallet ledger serialization', () => {
     const handle = {
       accounts,
       lock: jest.fn(async () => locked()),
+      close: jest.fn(async () => locked()),
     } as unknown as Workspace;
     const open = jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
     const draft = {
@@ -354,6 +358,7 @@ describe('wallet ledger serialization', () => {
     const handle = {
       accounts,
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const open = jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
     const draft = {
@@ -423,10 +428,12 @@ describe('wallet ledger serialization', () => {
     const first = {
       accounts: firstAccounts,
       lock: jest.fn(async () => firstLocked()),
+      close: jest.fn(async () => firstLocked()),
     } as unknown as Workspace;
     const second = {
       accounts: [{ wallets: [{}] }],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const open = jest
       .spyOn(Workspace, 'open')
@@ -502,11 +509,13 @@ describe('wallet ledger serialization', () => {
       const first = {
         accounts: firstAccounts,
         lock: jest.fn(async () => firstLocked()),
+        close: jest.fn(async () => firstLocked()),
       } as unknown as Workspace;
       const reopenedAccount = { wallets: [{}, {}] };
       const second = {
         accounts: [reopenedAccount],
         lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+        close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
       } as unknown as Workspace;
       const open = jest
         .spyOn(Workspace, 'open')

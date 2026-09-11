@@ -42,6 +42,7 @@ describe('SessionRegistry close failure', () => {
     const handle = {
       accounts: [],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const storage = {
       assertExisting: jest.fn(async () => ({ device: 1, inode: 1, realPath: '/test/workspace' })),
@@ -100,7 +101,7 @@ describe('SessionRegistry close failure', () => {
       .mockRejectedValueOnce(new Error('first provisional lock failed'))
       .mockRejectedValueOnce(new Error('cleanup retry failed'))
       .mockResolvedValue(undefined);
-    const handle = { accounts: [], lock } as unknown as Workspace;
+    const handle = { accounts: [], lock, close: lock } as unknown as Workspace;
     const state = {
       close: async () => undefined,
       tenant: () => ({ walletTotal: 0, workspaces: [] }),
@@ -170,8 +171,8 @@ describe('SessionRegistry close failure', () => {
       .mockRejectedValueOnce(new Error('lock probe'))
       .mockResolvedValue(undefined);
     const secondLock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const first = { accounts: [], lock: firstLock } as unknown as Workspace;
-    const second = { accounts: [], lock: secondLock } as unknown as Workspace;
+    const first = { accounts: [], lock: firstLock, close: firstLock } as unknown as Workspace;
+    const second = { accounts: [], lock: secondLock, close: secondLock } as unknown as Workspace;
     const open = jest
       .spyOn(Workspace, 'open')
       .mockResolvedValueOnce(first)
@@ -235,8 +236,8 @@ describe('SessionRegistry close failure', () => {
       .mockRejectedValueOnce(new Error('cleanup lock probe'))
       .mockResolvedValue(undefined);
     const secondLock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const first = { accounts: [], lock: firstLock } as unknown as Workspace;
-    const second = { accounts: [], lock: secondLock } as unknown as Workspace;
+    const first = { accounts: [], lock: firstLock, close: firstLock } as unknown as Workspace;
+    const second = { accounts: [], lock: secondLock, close: secondLock } as unknown as Workspace;
     const open = jest
       .spyOn(Workspace, 'open')
       .mockResolvedValueOnce(first)
@@ -304,8 +305,8 @@ describe('SessionRegistry close failure', () => {
   it('attempts every shutdown lock and reports any workspace that cannot drain', async () => {
     const failedLock = jest.fn<Promise<void>, []>().mockRejectedValue(new Error('drain probe'));
     const successfulLock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const first = { accounts: [], lock: failedLock } as unknown as Workspace;
-    const second = { accounts: [], lock: successfulLock } as unknown as Workspace;
+    const first = { accounts: [], lock: failedLock, close: failedLock } as unknown as Workspace;
+    const second = { accounts: [], lock: successfulLock, close: successfulLock } as unknown as Workspace;
     const open = jest
       .spyOn(Workspace, 'open')
       .mockResolvedValueOnce(first)
@@ -371,8 +372,8 @@ describe('SessionRegistry close failure', () => {
     const successfulLock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     const open = jest
       .spyOn(Workspace, 'open')
-      .mockResolvedValueOnce({ accounts: [], lock: failedLock } as unknown as Workspace)
-      .mockResolvedValueOnce({ accounts: [], lock: successfulLock } as unknown as Workspace);
+      .mockResolvedValueOnce({ accounts: [], lock: failedLock, close: failedLock } as unknown as Workspace)
+      .mockResolvedValueOnce({ accounts: [], lock: successfulLock, close: successfulLock } as unknown as Workspace);
 
     const draft = {
       tenants: {
@@ -445,8 +446,8 @@ describe('SessionRegistry close failure', () => {
     });
     const open = jest
       .spyOn(Workspace, 'open')
-      .mockResolvedValueOnce({ accounts: [], lock: firstLock } as unknown as Workspace)
-      .mockResolvedValueOnce({ accounts: secondAccounts, lock: secondLock } as unknown as Workspace);
+      .mockResolvedValueOnce({ accounts: [], lock: firstLock, close: firstLock } as unknown as Workspace)
+      .mockResolvedValueOnce({ accounts: secondAccounts, lock: secondLock, close: secondLock } as unknown as Workspace);
 
     const draft = {
       tenants: {
@@ -521,6 +522,7 @@ describe('SessionRegistry close failure', () => {
     const handle = {
       accounts: [],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const open = jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
     const draft = {
@@ -625,7 +627,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
 
   it('rejects ordinary deletion of a leased singleton and force revokes every lease', async () => {
     const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const { registry, tenant } = fixture([{ accounts: [], lock, close: lock } as unknown as Workspace]);
     const first = await registry.create(tenant, 'desk-a', 'password', ['read']);
     const second = await registry.create(tenant, 'desk-a', 'password', ['write']);
     const remove = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
@@ -650,7 +652,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
       .mockRejectedValueOnce(new Error('lock failed'))
       .mockResolvedValue(undefined);
     const { registry, tenant, open } = fixture([
-      { accounts: [], lock } as unknown as Workspace,
+      { accounts: [], lock, close: lock } as unknown as Workspace,
     ]);
     const grant = await registry.create(tenant, 'desk-a', 'password', ['read']);
     const remove = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
@@ -674,8 +676,8 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
     const secondLock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     const { registry, tenant } = fixture(
       [
-        { accounts: [], lock: firstLock } as unknown as Workspace,
-        { accounts: [], lock: secondLock } as unknown as Workspace,
+        { accounts: [], lock: firstLock, close: firstLock } as unknown as Workspace,
+        { accounts: [], lock: secondLock, close: secondLock } as unknown as Workspace,
       ],
       1,
     );
@@ -706,7 +708,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
       activeEntered = resolve;
     });
     const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const { registry, tenant } = fixture([{ accounts: [], lock, close: lock } as unknown as Workspace]);
     const grant = await registry.create(tenant, 'desk-a', 'password', ['write']);
     const events: string[] = [];
     const active = registry.withSession(grant.session, async () => {
@@ -740,7 +742,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
 
   it('does not idle-expire an admitted request, nor kill the shared session, when it queued behind the mutex', async () => {
     const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const { registry, tenant } = fixture([{ accounts: [], lock, close: lock } as unknown as Workspace]);
     const grant = await registry.create(tenant, 'desk-a', 'password', ['write']);
     // The idle deadline lapsed while the request waited on the mutex; the hard
     // (absolute) deadline is still in the future. The guard already admitted it.
@@ -759,7 +761,7 @@ describe('SessionRegistry workspace deletion lifecycle', () => {
 
   it('still refuses an in-flight request once the absolute deadline has passed', async () => {
     const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-    const { registry, tenant } = fixture([{ accounts: [], lock } as unknown as Workspace]);
+    const { registry, tenant } = fixture([{ accounts: [], lock, close: lock } as unknown as Workspace]);
     const grant = await registry.create(tenant, 'desk-a', 'password', ['write']);
     (grant.session as { absoluteExpiresAt: number }).absoluteExpiresAt = 0;
 
@@ -809,6 +811,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     const handle = {
       accounts: [],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     // What is on disk now.
     const onDisk = { device: 1, inode: 1, realPath: '/test/workspace' };
@@ -871,7 +874,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     ).rejects.toMatchObject({ code: 'PROVIDER_IO' });
     expect(registry.leaseCount).toBe(0);
     expect(registry.size).toBe(0);
-    expect(handle.lock).toHaveBeenCalledTimes(1);
+    expect(handle.close).toHaveBeenCalledTimes(1);
     // The rejection above is only meaningful if the registry actually handed
     // the recorded identity back. Assert the forwarding directly.
     expect(storage.assertExisting).toHaveBeenCalledWith('acme', 'desk-a', recorded);
@@ -885,6 +888,7 @@ describe('SessionRegistry storage identity and admission ordering', () => {
     const first = {
       accounts: [],
       lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
     } as unknown as Workspace;
     const identity = { device: 1, inode: 1, realPath: '/test/desk-a' };
     const storage = {
@@ -1094,7 +1098,7 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
       { process: 4, leasesPerWorkspace: 4 },
       testStorage,
     );
-    const handle = { accounts: [], lock } as unknown as Workspace;
+    const handle = { accounts: [], lock, close: lock } as unknown as Workspace;
     jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
     return { registry, stateClose, handle };
   }
@@ -1303,7 +1307,7 @@ describe('SessionRegistry.knowsWorkspace (L-10)', () => {
   it('reports a live entry as known', async () => {
     const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
     jest.spyOn(Workspace, 'open').mockResolvedValue(
-      { accounts: [], lock } as unknown as Workspace,
+      { accounts: [], lock, close: lock } as unknown as Workspace,
     );
     const registry = build();
     await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
@@ -1340,7 +1344,7 @@ describe('SessionRegistry shutdown drain classification (R-02)', () => {
       { process: 2, leasesPerWorkspace: 2 },
       testStorage,
     );
-    return { registry, stateClose, handle: { accounts: [], lock } as unknown as Workspace };
+    return { registry, stateClose, handle: { accounts: [], lock, close: lock } as unknown as Workspace };
   }
 
   /** Park inside Workspace.open so shutdown observes a genuinely in-flight job. */
