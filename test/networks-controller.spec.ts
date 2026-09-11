@@ -92,7 +92,9 @@ describe('network RPC source update', () => {
       'rebind',
       `revoke:${NEW_RELAY}`,
     ]);
-    expect(f.current()).toBe(f.old);
+    // The rollback now rebuilds a fresh Network (2.4.6 refuses the original when it
+    // is the shared built-in singleton), so compare by value, not identity.
+    expect(String(f.current().rpcUrl)).toBe(OLD_RELAY);
     expect(f.session.unusable).toBe(false);
   });
 
@@ -114,5 +116,43 @@ describe('network RPC source update', () => {
     )).rejects.toBeInstanceOf(AggregateError);
     expect(f.session.unusable).toBe(true);
     expect(f.boundary.revokeCapability).not.toHaveBeenCalledWith(NEW_RELAY);
+  });
+
+  it('rolls back through a fresh Network when the original is the built-in singleton', async () => {
+    // wative-core 2.4.6 refuses update()/add() handed the shared built-in Network
+    // object; bySlug returns that very object for a built-in slug not yet overridden.
+    const events: string[] = [];
+    const singleton = network(OLD_RELAY);
+    let current: Network = singleton;
+    const update = jest.fn(async (next: Network) => {
+      if (next === singleton) throw new Error('is the shared built-in Network object');
+      events.push(`update:${String(next.rpcUrl)}`);
+      current = next;
+    });
+    const boundary = {
+      admit: jest.fn(async () => 'https://rpc.public.test/'),
+      relayUrl: jest.fn(() => NEW_RELAY),
+      rebindNetwork: jest.fn(() => events.push('rebind')),
+      inspect: jest.fn(() => {
+        throw new Error('resolution probe');
+      }),
+      revokeCapability: jest.fn((url: string) => events.push(`revoke:${url}`)),
+    } as unknown as RpcBoundaryService;
+    const session = {
+      workspaceSlug: 'desk-a',
+      unusable: false,
+      handle: { networks: { bySlug: () => current, update } },
+    } as unknown as Session;
+    const tenant = { id: 'acme', allowDefaultRpc: false } as Tenant;
+
+    await expect(
+      new NetworksController(boundary).setRpc(session, tenant, 'ethereum', {
+        rpcUrl: 'https://rpc.public.test/',
+      }),
+    ).rejects.toThrow('resolution probe');
+    // Rollback must not re-pass the refused singleton; it restores a fresh copy.
+    expect(session.unusable).toBe(false);
+    expect(String(current.rpcUrl)).toBe(OLD_RELAY);
+    expect(events).toContain(`update:${OLD_RELAY}`);
   });
 });

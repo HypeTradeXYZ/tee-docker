@@ -107,7 +107,10 @@ export class NetworksController {
       // leaving the registry pointed at it. Roll back the Network first; if
       // rollback itself fails, retire the singleton through the interceptor.
       try {
-        await session.handle.networks.update(network);
+        // wative-core 2.4.6 refuses an update handed the shared built-in Network
+        // singleton, which bySlug returns for a built-in slug this workspace has
+        // not overridden. Roll back through a fresh instance, never that object.
+        await session.handle.networks.update(new Network({ ...network }));
         this.rpcBoundary.rebindNetwork(session.handle, String(network.slug));
         this.rpcBoundary.revokeCapability(relayUrl);
       } catch (rollbackError) {
