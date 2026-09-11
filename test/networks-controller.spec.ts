@@ -72,6 +72,21 @@ describe('network RPC source update', () => {
     expect(String(f.current().rpcUrl)).toBe(NEW_RELAY);
   });
 
+  it('revokes only the new capability when the first persist rejects', async () => {
+    const f = fixture();
+    f.update.mockRejectedValueOnce(new Error('persist probe'));
+    await expect(f.controller.setRpc(
+      f.session,
+      f.tenant,
+      'ethereum',
+      { rpcUrl: 'https://rpc.public.test/' },
+    )).rejects.toThrow('persist probe');
+    expect(f.boundary.revokeCapability).toHaveBeenCalledWith(NEW_RELAY);
+    expect(f.boundary.revokeCapability).not.toHaveBeenCalledWith(OLD_RELAY);
+    expect(f.current()).toBe(f.old);
+    expect(f.session.unusable).toBe(false);
+  });
+
   it('rolls back post-persist resolution failure before revoking the new capability', async () => {
     const f = fixture();
     jest.mocked(f.boundary.inspect).mockImplementation(() => {
