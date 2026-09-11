@@ -931,11 +931,15 @@ export class SessionRegistry implements OnApplicationShutdown {
     });
     await session.mutex.runExclusive(async () => {
       try {
-        await session.handle.lock();
+        // Evicting for good: close() zeroizes secrets (it locks first) AND releases
+        // the storage provider — the pool-correct teardown. The fatal path keeps
+        // lock() alone for a fast wipe (see lockAllHandlesBestEffort).
+        await session.handle.close();
       } catch (err) {
-        this.logger.error(`lock failed for session ${session.sid}: ${String(err)}`);
+        this.logger.error(`close failed for session ${session.sid}: ${String(err)}`);
         // Keep the closing entry as a fail-closed tombstone. A later mint may
-        // retry the lock under the same lifecycle mutex but cannot bypass it.
+        // retry under the same lifecycle mutex but cannot bypass it; close()
+        // single-flights and clears its cache on failure, so the retry re-runs it.
         throw err;
       }
     });
@@ -951,10 +955,10 @@ export class SessionRegistry implements OnApplicationShutdown {
     }
     entry.state = 'closing';
     try {
-      await handle.lock();
+      await handle.close();
     } catch (err) {
       this.logger.error(
-        `provisioning lock failed for ${entry.tenantId}/${entry.workspaceSlug}: ${String(err)}`,
+        `provisioning close failed for ${entry.tenantId}/${entry.workspaceSlug}: ${String(err)}`,
       );
       throw err;
     }
