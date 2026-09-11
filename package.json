@@ -27,7 +27,7 @@
     "@nestjs/platform-express": "^11.1.6",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "wative-core": "2.4.4",
+    "wative-core": "2.4.6",
     "zod": "^4.1.5"
   },
   "devDependencies": {
