@@ -6,4 +6,4 @@ allowBuilds:
   unrs-resolver: false
   utf-8-validate: false
 minimumReleaseAgeExclude:
-  - wative-core@2.4.4 || 2.4.6
+  - wative-core@2.4.4 || 2.4.6 || 2.4.7
