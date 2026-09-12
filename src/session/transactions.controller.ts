@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   WativeError,
   type Address,
+  type ChainId,
   type Transaction,
   type TransactionTracker,
 } from 'wative-core';
@@ -45,6 +46,17 @@ export function boundedProviderText(value: unknown): string {
   return `${text.slice(0, end)}…`;
 }
 
+// Bound on caller-supplied arrays (access list, SVM instructions, lookup
+// tables). Mirrors the projector's own MAX_LIST so a body that builds cannot
+// then fail to project.
+const MAX_LIST = 256;
+
+/** One EIP-2930 access-list entry: an address and the storage slots it touches. */
+const AccessListEntry = z.object({
+  address: z.string().min(1).max(128),
+  storageKeys: z.array(z.string().min(1).max(128)).max(MAX_LIST),
+}).strict();
+
 const BuildBody = z.object({
   address: z.string().min(1).max(128),
   // EVM
@@ -53,12 +65,25 @@ const BuildBody = z.object({
   data: z.string().optional(),
   nonce: z.number().int().nonnegative().optional(),
   gasLimit: bigintish.optional(),
+  gasPrice: bigintish.optional(),
   maxFeePerGas: bigintish.optional(),
   maxPriorityFeePerGas: bigintish.optional(),
+  // 0 legacy, 1 EIP-2930, 2 EIP-1559 — core normalizes, this only fences the set.
+  type: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
+  chainId: z.number().int().positive().optional(),
+  accessList: z.array(AccessListEntry).max(MAX_LIST).optional(),
   // SVM
   recipient: z.string().min(1).optional(),
   amount: bigintish.optional(),
   tokenMint: z.string().optional(),
+  tokenProgram: z.string().min(1).optional(),
+  computeUnitLimit: z.number().int().nonnegative().optional(),
+  computeUnitPrice: bigintish.optional(),
+  feePayer: z.string().min(1).optional(),
+  // Raw instructions are passed to core unshaped; only the count is bounded here.
+  instructions: z.array(z.unknown()).max(MAX_LIST).optional(),
+  addressLookupTables: z.array(z.string().min(1).max(128)).max(MAX_LIST).optional(),
+  memo: z.string().max(1024).optional(),
   recentBlockhash: z.string().optional(),
 }).strict();
 
@@ -242,8 +267,12 @@ export class TransactionsController {
           data: d.data,
           nonce: d.nonce,
           gasLimit: toBig(d.gasLimit),
+          gasPrice: toBig(d.gasPrice),
           maxFeePerGas: toBig(d.maxFeePerGas),
           maxPriorityFeePerGas: toBig(d.maxPriorityFeePerGas),
+          type: d.type,
+          chainId: d.chainId === undefined ? undefined : (d.chainId as ChainId),
+          accessList: d.accessList,
           rpcUrl: rpc.url as string,
         }),
       };
@@ -258,6 +287,13 @@ export class TransactionsController {
         recipient: d.recipient,
         amount: toBig(d.amount) as bigint,
         tokenMint: d.tokenMint,
+        tokenProgram: d.tokenProgram,
+        computeUnitLimit: d.computeUnitLimit,
+        computeUnitPrice: toBig(d.computeUnitPrice),
+        feePayer: d.feePayer,
+        instructions: d.instructions,
+        addressLookupTables: d.addressLookupTables,
+        memo: d.memo,
         recentBlockhash: d.recentBlockhash,
         rpcUrl: rpc.url as string,
       }),

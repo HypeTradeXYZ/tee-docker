@@ -128,6 +128,68 @@ describe('transactions-flow', () => {
     });
   });
 
+  describe('2.5.0 build params', () => {
+    const dead = '0x000000000000000000000000000000000000dEaD';
+
+    beforeAll(async () => {
+      await http()
+        .put('/v1/workspace/networks/ethereum')
+        .set(bearer())
+        .send({ rpcUrl: 'https://1.1.1.1:9/unreachable' })
+        .expect(200);
+    });
+
+    it('accepts an EIP-1559 type and an access list and carries them into the built tx', async () => {
+      // Every field a 1559 tx needs is supplied, so the build never reaches the
+      // (deliberately dead) endpoint for a gas estimate or nonce.
+      const res = await http()
+        .post('/v1/transactions/build')
+        .set(bearer())
+        .send({
+          address: evmAddress,
+          to: dead,
+          value: '1',
+          nonce: 0,
+          gasLimit: '21000',
+          maxFeePerGas: '1000000000',
+          maxPriorityFeePerGas: '1000000000',
+          type: 2,
+          accessList: [{ address: dead, storageKeys: [] }],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.raw.type).toBe(2);
+      expect(Array.isArray(res.body.raw.accessList)).toBe(true);
+      expect(res.body.raw.accessList).toHaveLength(1);
+    });
+
+    it('rejects an out-of-range EVM tx type', async () => {
+      const res = await http()
+        .post('/v1/transactions/build')
+        .set(bearer())
+        .send({ address: evmAddress, to: dead, value: '1', type: 5 });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an access list longer than the bound', async () => {
+      const accessList = Array.from({ length: 257 }, () => ({ address: dead, storageKeys: [] }));
+      const res = await http()
+        .post('/v1/transactions/build')
+        .set(bearer())
+        .send({ address: evmAddress, to: dead, value: '1', accessList });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an over-long SVM instruction list before it reaches core', async () => {
+      const instructions = Array.from({ length: 257 }, () => ({}));
+      const res = await http()
+        .post('/v1/transactions/build')
+        .set(bearer())
+        .send({ address: evmAddress, recipient: dead, amount: '1', instructions });
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe('scopes', () => {
     it('refuses transaction routes without the sign scope', async () => {
       const readOnly = (
