@@ -17,6 +17,7 @@ import {
 } from '../auth/scope-binding.guard';
 import { assertValidAccountSlug } from './account-slug';
 import { SessionRegistry, type Session } from './session.registry';
+import { accountView, type AccountView } from './views';
 import type { Tenant } from '../config/schemas';
 import { parseNetworkSelector } from './network-selector';
 import { damagedAccountSlugs } from './damaged-accounts';
@@ -30,15 +31,6 @@ interface AssetView {
   decimals: number;
   native: boolean;
   contractAddress: string | null;
-}
-
-interface AccountView {
-  slug: string;
-  displayName: string;
-  kind: string;
-  hasOwnPassword: boolean;
-  locked: boolean;
-  wallets: number;
 }
 
 /**
@@ -78,16 +70,7 @@ export class WorkspaceController {
   @RequireScopes('read')
   accounts(@CurrentSession() session: Session): { accounts: AccountView[] } {
     return {
-      accounts: session.handle.accounts.map(
-        (a): AccountView => ({
-          slug: String(a.slug),
-          displayName: a.displayName,
-          kind: a.organizationType,
-          hasOwnPassword: a.hasOwnPassword,
-          locked: a.locked,
-          wallets: a.wallets.length,
-        }),
-      ),
+      accounts: session.handle.accounts.map(accountView),
     };
   }
 
@@ -167,14 +150,7 @@ export class WorkspaceController {
   ): Promise<{ account: AccountView }> {
     const a = await this.sessions.requireAccount(session, assertValidAccountSlug(slug));
     return {
-      account: {
-        slug: String(a.slug),
-        displayName: a.displayName,
-        kind: a.organizationType,
-        hasOwnPassword: a.hasOwnPassword,
-        locked: a.locked,
-        wallets: a.wallets.length,
-      },
+      account: accountView(a),
     };
   }
 }

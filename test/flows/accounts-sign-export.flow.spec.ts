@@ -65,6 +65,16 @@ describe('accounts-sign-export-flow', () => {
       expect(res.body.account.hasOwnPassword).toBe(false);
     });
 
+    it('includes defaultNetwork on the account listing and fetch', async () => {
+      const list = await http().get('/v1/accounts').set(bearer()).expect(200);
+      const account = list.body.accounts[0];
+      expect(typeof account.defaultNetwork).toBe('string');
+      expect(account.defaultNetwork.length).toBeGreaterThan(0);
+
+      const fetched = await http().get(`/v1/accounts/${account.slug}`).set(bearer()).expect(200);
+      expect(fetched.body.account.defaultNetwork).toBe(account.defaultNetwork);
+    });
+
     it('derives wallets', async () => {
       const slug = (await http().get('/v1/accounts').set(bearer())).body.accounts[0].slug;
       const res = await http()
