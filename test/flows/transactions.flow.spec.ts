@@ -163,6 +163,22 @@ describe('transactions-flow', () => {
       expect(res.body.raw.accessList).toHaveLength(1);
     });
 
+    it('accepts a build with no fee params and defers them to sign-time autofill', async () => {
+      // gasLimit is supplied so the build needs no gas estimate from the (dead)
+      // endpoint; every FEE field is omitted. The API accepts it and the built
+      // tx carries no fees — core fills anti-pending defaults at sign time, not
+      // here, so the projected raw has them unset.
+      const res = await http()
+        .post('/v1/transactions/build')
+        .set(bearer())
+        .send({ address: evmAddress, to: dead, value: '1', gasLimit: '21000', nonce: 0 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.raw.maxFeePerGas).toBeUndefined();
+      expect(res.body.raw.maxPriorityFeePerGas).toBeUndefined();
+      expect(res.body.raw.gasPrice).toBeUndefined();
+    });
+
     it('rejects an out-of-range EVM tx type', async () => {
       const res = await http()
         .post('/v1/transactions/build')
