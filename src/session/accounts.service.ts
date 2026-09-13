@@ -119,7 +119,7 @@ export class AccountsService {
     return this.mutateWalletIncrease(session, tenant, count, () => account.deriveWallets(count));
   }
 
-  async importPrivateKey(session: Session, tenant: Tenant, slug: string, pk: string): Promise<Wallet> {
+  async importPrivateKey(session: Session, tenant: Tenant, slug: string, pk: string, vm?: 'evm' | 'svm'): Promise<Wallet> {
     const account = await this.sessions.requireAccount(session, slug);
     // Mirror the derive guard. Without it core's UNSUPPORTED_OP surfaces as a
     // 501, telling the caller the server lacks the feature rather than that
@@ -129,9 +129,10 @@ export class AccountsService {
       throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'only a PK account can import a private key');
     }
 
-    // vm is inferred from the key since 2.4.2, and a PK wallet now carries an
-    // address on both chains.
-    return this.mutateWalletIncrease(session, tenant, 1, () => account.importPrivateKey(pk));
+    // vm is inferred from the key form when omitted; pass it to import a
+    // non-standard encoding or force a clear rejection. A PK wallet carries an
+    // address on both chains regardless.
+    return this.mutateWalletIncrease(session, tenant, 1, () => account.importPrivateKey(pk, vm));
   }
 
   private liveWalletCount(session: Session): number {

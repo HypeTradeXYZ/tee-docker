@@ -41,7 +41,10 @@ const CreateAccount = z.object({
 }).strict();
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) }).strict();
-const ImportKey = z.object({ privateKey: z.string().min(1) }).strict();
+const ImportKey = z.object({
+  privateKey: z.string().min(1),
+  vm: z.enum(['evm', 'svm']).optional(),
+}).strict();
 const SetTags = z.object({ tags: z.array(z.string()).max(32) }).strict();
 
 @Controller('accounts')
@@ -126,7 +129,7 @@ export class AccountsController {
     if (!parsed.success) {
       throw new TeeError(
         'TEE_INVALID_BODY',
-        invalidBodyMessage('body must be { privateKey }', parsed.error, body),
+        invalidBodyMessage('body must be { privateKey, vm? }', parsed.error, body),
       );
     }
     const wallet = await this.accounts.importPrivateKey(
@@ -134,6 +137,7 @@ export class AccountsController {
       tenant,
       assertValidAccountSlug(slug),
       parsed.data.privateKey,
+      parsed.data.vm,
     );
     return { wallet: walletView(wallet) };
   }

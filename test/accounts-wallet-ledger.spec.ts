@@ -270,6 +270,8 @@ describe('wallet ledger serialization', () => {
       service.importPrivateKey(reopened.session, tenant, 'vault', 'key-two'),
     );
     expect(draft.tenants.acme.walletTotal).toBe(2);
+    // vm is forwarded to core (undefined when the caller omits it).
+    expect(reopenedAccount.importPrivateKey).toHaveBeenCalledWith('key-two', undefined);
     expect(open).toHaveBeenCalledTimes(2);
 
     await registry.onApplicationShutdown();
