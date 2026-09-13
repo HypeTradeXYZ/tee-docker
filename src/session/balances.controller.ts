@@ -18,8 +18,9 @@ export class BalancesController {
   constructor(private readonly sessions: SessionRegistry) {}
 
   /**
-   * Compatibility route. Core 2.4.4 implements no balance refresh path; the
-   * capability guard returns a stable 501 before this handler can run.
+   * Compatibility route. Core 2.5.1 exposes balance-refresh methods but
+   * implements none of them; the capability guard returns a stable 501 before
+   * this handler can run.
    */
   @Get(':publicKey/balances')
   @RequireScopes('read')
