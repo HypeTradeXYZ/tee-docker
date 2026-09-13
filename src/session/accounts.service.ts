@@ -185,7 +185,7 @@ export class AccountsService {
     try {
       result = await mutate();
     } catch (coreError) {
-      // In 2.4.4 the provider can persist bytes and then throw before updating
+      // In 2.5.1 the provider can persist bytes and then throw before updating
       // the live collection for account create, derive, or import. Even the
       // error code is not evidence of write ordering: a provider can commit
       // and then surface any WativeError. Once core starts, keep the

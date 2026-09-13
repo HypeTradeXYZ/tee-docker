@@ -359,7 +359,7 @@ export async function submitTransaction(
   try {
     return await operations.run(session, 'transaction', async () => {
       // Transaction.sign() is the awaitable primitive. Address.signTransaction
-      // returns before async signing has populated the canonical hash in 2.4.4.
+      // returns before async signing has populated the canonical hash in 2.5.1.
       const signed = await tx.sign();
       signedHash = requireSignedTransactionId(signed);
       sendStarted = true;
@@ -492,7 +492,7 @@ export function assertSimulationTransport(sim: {
   ) {
     throw sim.raw;
   }
-  // wative-core 2.4.4's SVM adapter returns a plain Error for transport
+  // wative-core 2.5.1's SVM adapter returns a plain Error for transport
   // rejection, while ordinary on-chain simulation failures carry structured
   // RPC data. Never render the transport failure as HTTP 200.
   if (sim.raw instanceof Error) {

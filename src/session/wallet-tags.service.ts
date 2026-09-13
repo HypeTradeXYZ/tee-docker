@@ -7,7 +7,7 @@ import type { Session } from './session.registry';
 /**
  * Replaces wallet tags with a durable old-value recovery record.
  *
- * wative-core 2.4.4 persists clear/add operations individually. The journal
+ * wative-core 2.5.1 persists clear/add operations individually. The journal
  * makes an interrupted sequence recoverable before a new session is
  * published, while ordinary failures compensate immediately.
  */

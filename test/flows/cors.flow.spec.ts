@@ -192,8 +192,8 @@ describe('cors-flow', () => {
   });
 
   // Colocated with the other /health probes rather than in its own flow file:
-  // an extra flow-suite file nudges the wative-core provider accumulation over a
-  // threshold and flakes the run (that provider has no close() in 2.4.4).
+  // an extra flow-suite file nudges the suite-accumulation flake over its
+  // threshold and flakes the run (the exact driver is still under investigation).
   describe('health reflects shutdown', () => {
     let harness: Harness;
     const http = () => request(harness.app.getHttpServer());

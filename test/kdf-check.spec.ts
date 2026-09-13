@@ -53,7 +53,7 @@ describe('KDF readiness configuration', () => {
 });
 
 describe('KDF probe assessment', () => {
-  it('observes the installed 2.4.4 native provider backend', async () => {
+  it('observes the installed 2.5.1 native provider backend', async () => {
     const observation = await systemKdfProbeRunner();
     expect(observation.backends).toEqual(['node-rs']);
     expect(Number.isFinite(observation.probeMs)).toBe(true);

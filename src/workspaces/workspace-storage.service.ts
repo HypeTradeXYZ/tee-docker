@@ -85,7 +85,7 @@ export class WorkspaceStorageService {
       const state = await provider.inspectContainer();
       if (state !== 'workspace') throw workspaceNotFound(workspaceSlug);
 
-      // Passing an existing-only provider is essential. wative-core 2.4.4's
+      // Passing an existing-only provider is essential. wative-core 2.5.1's
       // legacy `create=false` argument does not prevent empty-path creation.
       handle = await Workspace.open({ provider, password });
       // Hand ownership to SessionRegistry before the post-open identity check.
