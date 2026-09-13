@@ -20,8 +20,9 @@ export interface LoadedEnv {
 
 /**
  * Populate `process.env` from env files. Call once, before anything reads
- * configuration — `WATIVE_DATA_ROOT` set here overrides HybridProvider's
- * default workspace location.
+ * configuration — including `WATIVE_DATA_ROOT`, tee-docker's own data-root
+ * variable, which `paths.ts` resolves into the explicit per-workspace storage
+ * paths the provider is handed.
  */
 export function loadEnvFiles(cwd: string = process.cwd()): LoadedEnv {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
