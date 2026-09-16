@@ -35,7 +35,12 @@ services:
       replicas: 1
       resources:
         limits:
-          cpus: "1.0"
+          # Concurrent workspace creates are CPU-bound on the Argon2 KDF; a
+          # single core serialized them (~8s each under a 5-8 wide burst). Four
+          # cores let concurrent derivations run in parallel. Safe to scale —
+          # only replicas must stay 1 — but raise UV_THREADPOOL_SIZE with it so
+          # libuv can actually use the cores.
+          cpus: "4.0"
           memory: "1024M"
         reservations:
           cpus: "0.5"
@@ -66,6 +71,11 @@ services:
       # 1000ms default leaves little room on a shared VPS core. Raised here
       # deliberately; do not disable the check.
       - TEE_KDF_MAX_PROBE_MS=2500
+
+      # The Argon2 KDF and workspace disk I/O run on the libuv threadpool, so
+      # this caps how many concurrent creates can derive keys at once. Keep it
+      # aligned with the CPU limit above; move the two together.
+      - UV_THREADPOOL_SIZE=4
 
       - TEE_MAX_UNLOCKED_WORKSPACES=32
       - TEE_MAX_TOKEN_LEASES_PER_WORKSPACE=64
