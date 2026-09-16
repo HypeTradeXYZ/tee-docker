@@ -96,8 +96,9 @@ export class WorkspacesService {
         // Workspace creation is the sole path allowed to initialize storage.
         const ws = await Workspace.open({ path, password });
         retainHandle(ws);
-        // Seed the tenant's RPC endpoints into the workspace registry, which is
-        // the single source of truth at read time (DESIGN §6).
+        // Seal the tenant's RPC endpoints and rebind built-ins to this process's
+        // relay, both offline. Endpoints are validated at boot and re-checked on
+        // every request, so creation performs no network call.
         await this.seedRpc(ws, tenant, slug);
         await this.rpcBoundary.hardenWorkspace(ws, tenant.id, slug, tenant.rpc);
       } catch (err) {
@@ -126,7 +127,7 @@ export class WorkspacesService {
     });
   }
 
-  /** Copy configured endpoints into the registry; a bad slug is skipped, not fatal. */
+  /** Seal configured endpoints into the registry offline; an unknown slug is skipped. */
   private async seedRpc(ws: Workspace, tenant: Tenant, workspaceSlug: string): Promise<void> {
     for (const [slug, rpcUrl] of Object.entries(tenant.rpc)) {
       const network = ws.networks.bySlug(slug as never);
@@ -134,16 +135,10 @@ export class WorkspacesService {
         this.logger.warn(`tenant ${tenant.id} configured RPC for unknown network "${slug}"`);
         continue;
       }
-      const target = await this.rpcBoundary.admit(rpcUrl);
       await ws.networks.update(
         new Network({
           ...network,
-          rpcUrl: this.rpcBoundary.relayUrl(
-            target,
-            tenant.id,
-            workspaceSlug,
-            'tenant',
-          ),
+          rpcUrl: this.rpcBoundary.relayUrl(rpcUrl, tenant.id, workspaceSlug, 'tenant'),
         }),
       );
     }

@@ -60,6 +60,7 @@ describe('H-01 RPC boundary flow', () => {
   let address: string;
   let svmAddress: string;
   const observed: string[] = [];
+  let dnsCalls = 0;
   const http = () => request(harness.app.getHttpServer());
   const bearer = () => ({ authorization: `Bearer ${token}` });
 
@@ -73,12 +74,17 @@ describe('H-01 RPC boundary flow', () => {
           solana: TARGET,
         },
       }],
-      rpcDnsResolver: async () => [
-        { address: '8.8.8.8', family: 4 },
-        { address: '2606:4700:4700::1111', family: 6 },
-      ],
+      rpcDnsResolver: async () => {
+        dnsCalls += 1;
+        return [
+          { address: '8.8.8.8', family: 4 },
+          { address: '2606:4700:4700::1111', family: 6 },
+        ];
+      },
       rpcHttpsRequester: maliciousRequester(observed),
     });
+    // Boot validated the operator RPC config; provisioning below must add none.
+    dnsCalls = 0;
 
     await http()
       .post('/v1/workspaces')
@@ -126,6 +132,14 @@ describe('H-01 RPC boundary flow', () => {
       tenant.ttl.workspaceIdleSec,
     )!.session;
   }
+
+  it('provisions the workspace, account, and wallet without any RPC network call', () => {
+    // Creating the workspace (with configured tenant RPC), opening the session,
+    // and deriving the HD wallet in beforeAll resolved no hostname: endpoints
+    // are sealed offline and only re-resolved when a transaction actually runs.
+    expect(dnsCalls).toBe(0);
+    expect(observed).toEqual([]);
+  });
 
   it('stores only a loopback capability in every core Network', () => {
     const session = liveSession();

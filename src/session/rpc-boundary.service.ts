@@ -325,9 +325,8 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
           : builtin !== undefined && builtin === target
             ? 'builtin'
             : 'tenant';
-        // Legacy tenant URLs predate the boundary. Revalidate them before the
-        // singleton is published; built-ins remain request-time checked.
-        if (source === 'tenant') await this.resolvePublic(new URL(target).hostname);
+        // Legacy plaintext URLs predate the boundary. They are sealed offline
+        // here and, like built-ins, re-resolved and checked at request time.
       }
 
       const hardened = this.relayUrl(target, tenantId, workspaceSlug, source);
