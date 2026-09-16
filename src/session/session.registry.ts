@@ -102,6 +102,16 @@ export interface SessionGrant {
   readonly exp: number;
 }
 
+/** Read-only operational gauges for the admin diagnostics probe. */
+export interface SessionRegistryDiagnostics {
+  readonly sessions: number;
+  readonly unlockedWorkspaces: number;
+  readonly unlockedWorkspacesCap: number;
+  readonly liveLeases: number;
+  readonly durableLeases: number;
+  readonly leasesPerWorkspaceCap: number;
+}
+
 interface WorkspaceEntry {
   readonly key: string;
   readonly tenantId: string;
@@ -1002,6 +1012,29 @@ export class SessionRegistry implements OnApplicationShutdown {
     if (session.leases.size >= this.capacity.leasesPerWorkspace) {
       throw capacityError('workspace', this.capacity.leasesPerWorkspace);
     }
+  }
+
+  /**
+   * Read-only operational gauges for the admin diagnostics probe. Cheap
+   * in-process reads only — no locks, no core calls.
+   */
+  diagnostics(): SessionRegistryDiagnostics {
+    let liveLeases = 0;
+    let durableLeases = 0;
+    for (const session of this.#sessions.values()) {
+      liveLeases += session.leases.size;
+      for (const lease of session.leases.values()) {
+        if (lease.durable === true) durableLeases += 1;
+      }
+    }
+    return {
+      sessions: this.#sessions.size,
+      unlockedWorkspaces: this.chargedEntries().length,
+      unlockedWorkspacesCap: this.capacity.process,
+      liveLeases,
+      durableLeases,
+      leasesPerWorkspaceCap: this.capacity.leasesPerWorkspace,
+    };
   }
 
   private chargedEntries(): WorkspaceEntry[] {

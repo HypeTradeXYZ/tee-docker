@@ -42,6 +42,27 @@ describe('admin limits flow', () => {
     await harness?.close();
   });
 
+  it('exposes an operational snapshot behind the admin key', async () => {
+    await http.get('/v1/admin/diagnostics').expect(401); // no key
+
+    const res = await http.get('/v1/admin/diagnostics').set(adminHeaders()).expect(200);
+    expect(res.body).toMatchObject({
+      coreVersion: expect.any(String),
+      process: expect.objectContaining({
+        rssBytes: expect.any(Number),
+        heapUsedBytes: expect.any(Number),
+        eventLoopLagMeanMs: expect.any(Number),
+      }),
+      sessions: expect.objectContaining({
+        unlockedWorkspaces: expect.any(Number),
+        unlockedWorkspacesCap: expect.any(Number),
+        durableLeases: expect.any(Number),
+      }),
+      rpc: expect.objectContaining({ activeRequests: expect.any(Number) }),
+    });
+    expect(res.body.uptimeSec).toBeGreaterThanOrEqual(0);
+  });
+
   it('raises a limit; the running service and state.json both reflect it', async () => {
     const before = await http.get('/v1/quota').set(authHeaders()).expect(200);
     expect(before.body.wallets.limit).toBe(DEFAULT_TENANT.limits.maxWallets);

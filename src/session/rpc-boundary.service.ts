@@ -50,6 +50,13 @@ export const RPC_DNS_RESOLVER = Symbol('tee-docker:rpc-dns-resolver');
 export type RpcHttpsRequester = typeof httpsRequest;
 export const RPC_HTTPS_REQUESTER = Symbol('tee-docker:rpc-https-requester');
 
+/** Read-only counters for the admin diagnostics probe. */
+export interface RpcBoundaryDiagnostics {
+  readonly activeRequests: number;
+  readonly workspacesWithCapabilities: number;
+  readonly pinnedTargets: number;
+}
+
 export async function systemRpcDnsResolver(hostname: string): Promise<readonly PublicAddress[]> {
   const records = await dnsLookup(hostname, { all: true, verbatim: true });
   return records.map((record) => ({ address: record.address, family: record.family as 4 | 6 }));
@@ -97,6 +104,17 @@ export class RpcBoundaryService implements OnModuleInit, OnApplicationShutdown {
       .digest();
     this.dnsResolver = dnsResolver ?? systemRpcDnsResolver;
     this.requester = requester ?? httpsRequest;
+  }
+
+  /** Read-only counters for the admin diagnostics probe. */
+  diagnostics(): RpcBoundaryDiagnostics {
+    let pinnedTargets = 0;
+    for (const targets of this.activeCapabilities.values()) pinnedTargets += targets.size;
+    return {
+      activeRequests: this.activeRequests,
+      workspacesWithCapabilities: this.activeCapabilities.size,
+      pinnedTargets,
+    };
   }
 
   async onModuleInit(): Promise<void> {

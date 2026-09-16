@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 
 import { TeeError } from '../common/tee-error';
@@ -6,6 +6,7 @@ import { invalidBodyMessage } from '../common/invalid-body';
 import { assertValidSlug } from '../workspaces/workspace-paths';
 import { AdminGuard } from './admin.guard';
 import { AdminService, type LiftResult } from './admin.service';
+import { DiagnosticsService, type DiagnosticsSnapshot } from './diagnostics.service';
 
 // Bounded by the same rule LimitsSchema holds these fields to, so a value the
 // endpoint accepts is always a value the operator config can hold.
@@ -25,7 +26,18 @@ const LiftBody = z
 @Controller('admin')
 @UseGuards(AdminGuard)
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly diagnostics: DiagnosticsService,
+  ) {}
+
+  // Read-only operational snapshot for remote diagnosis (FD/memory/session/RPC
+  // gauges). Behind the same X-Admin-Key as the limits route — these internals
+  // are profiling information and never belong on the public health probe.
+  @Get('diagnostics')
+  getDiagnostics(): DiagnosticsSnapshot {
+    return this.diagnostics.snapshot();
+  }
 
   @Post('tenants/:id/limits')
   async liftLimits(@Param('id') id: string, @Body() body: unknown): Promise<LiftResult> {

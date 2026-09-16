@@ -58,6 +58,7 @@ import {
   rpcOperationConfigFromEnv,
 } from './session/rpc-operation.service';
 import { AdminController } from './admin/admin.controller';
+import { DiagnosticsService } from './admin/diagnostics.service';
 import { AdminService } from './admin/admin.service';
 import { AdminGuard } from './admin/admin.guard';
 import { LimitOverrideReplay } from './admin/limit-override-replay';
@@ -113,6 +114,7 @@ import {
     AdminRateLimiter,
     AdminGuard,
     AdminService,
+    DiagnosticsService,
     LimitOverrideReplay,
     { provide: WORKSPACE_CREATION_CLOCK, useValue: Date.now },
     { provide: WORKSPACE_CREATION_CONFIG, useFactory: workspaceCreationConfigFromEnv },
