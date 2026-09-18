@@ -9,6 +9,7 @@ import { installCors } from './common/cors';
 import { OperatorConfigService } from './config/operator-config.service';
 import { takeHeldServiceState } from './config/config.module';
 import { SessionRegistry } from './session/session.registry';
+import { ActivityLog } from './observability/activity-log.service';
 
 // Held so a failed boot can still release the ledger's process lock: without
 // it the next start fails closed on a lock this process left behind.
@@ -60,6 +61,14 @@ function installFatalHandlers(app: INestApplication): void {
     setTimeout(() => process.exit(1), 10_000).unref();
     try {
       log.error(`${event}: ${describeFatal(reason)}`);
+      // Synchronous and bounded: persist the recent-activity tail before the
+      // async lock below, so the events leading to this crash survive even if
+      // the handle lock wedges and the watchdog force-exits.
+      try {
+        app.get(ActivityLog).flushToDisk(event);
+      } catch {
+        // A telemetry write must never pre-empt the key-locking that follows.
+      }
       void app
         .get(SessionRegistry)
         .lockAllHandlesBestEffort()

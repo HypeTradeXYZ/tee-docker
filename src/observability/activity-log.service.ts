@@ -1,5 +1,5 @@
-import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { readdirSync } from 'node:fs';
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { chmodSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import { redactForLog } from '../common/error.filter';
 import { ACTIVITY_CONFIG, type ActivityConfig } from './activity-config';
@@ -46,7 +46,12 @@ export interface ActivityStats {
   readonly perfSamplesHeld: number;
   readonly perfCap: number;
   readonly lastSeq: number;
+  /** Events reloaded from the previous run's crash/shutdown dump, if any. */
+  readonly lastCrashHeld: number;
 }
+
+/** The scope a pull reads: the live ring, or the reloaded previous-run dump. */
+export type ActivityScope = 'current' | 'lastcrash';
 
 /**
  * In-process rolling activity log: a bounded event ring plus a perf-sample ring,
@@ -63,8 +68,10 @@ export interface ActivityStats {
  */
 @Injectable()
 export class ActivityLog implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ActivityLog.name);
   readonly #events: ActivityEvent[] = [];
   readonly #perf: PerfSample[] = [];
+  #lastCrash: ActivityEvent[] = [];
   #seq = 0;
   #captured = 0;
   #dropped = 0;
@@ -75,6 +82,7 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit(): void {
     if (!this.config.enabled) return;
+    this.loadCrashDump();
     // A process-lifetime histogram reset every interval yields a timestamped
     // lag series, unlike the cumulative gauge on /admin/diagnostics.
     this.#loop = monitorEventLoopDelay({ resolution: 20 });
@@ -86,6 +94,8 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     if (this.#sampler) clearInterval(this.#sampler);
     this.#loop?.disable();
+    // Graceful stop: persist the tail so a redeploy keeps the last events.
+    this.flushToDisk('shutdown');
   }
 
   /** Append one event. Structured object in; serialization is deferred to read. */
@@ -105,11 +115,14 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Events with seq strictly greater than `sinceSeq`, oldest first, capped. */
-  recent(opts: { limit?: number; sinceSeq?: number; kind?: ActivityKind } = {}): ActivityEvent[] {
+  recent(
+    opts: { limit?: number; sinceSeq?: number; kind?: ActivityKind; scope?: ActivityScope } = {},
+  ): ActivityEvent[] {
     const sinceSeq = opts.sinceSeq ?? 0;
+    const source = opts.scope === 'lastcrash' ? this.#lastCrash : this.#events;
     const limit = clampLimit(opts.limit, this.config.eventCap);
     const out: ActivityEvent[] = [];
-    for (const event of this.#events) {
+    for (const event of source) {
       if (event.seq <= sinceSeq) continue;
       if (opts.kind !== undefined && event.kind !== opts.kind) continue;
       out.push(event);
@@ -132,7 +145,48 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
       perfSamplesHeld: this.#perf.length,
       perfCap: this.config.perfCap,
       lastSeq: this.#seq,
+      lastCrashHeld: this.#lastCrash.length,
     };
+  }
+
+  /**
+   * Persist the tail of the event ring to the state volume. Called from the
+   * graceful path and the fatal handler, so it must be synchronous (finish
+   * before process.exit), bounded, and never throw — a telemetry write can
+   * never be allowed to replace the crash it is trying to record.
+   */
+  flushToDisk(reason: string): void {
+    if (!this.config.enabled || !this.config.crashDump) return;
+    try {
+      const events = this.#events.slice(-this.config.crashDumpEvents);
+      const dump = JSON.stringify({ reason, writtenAt: Date.now(), events });
+      writeFileSync(this.config.crashDumpFile, dump, { mode: 0o600 });
+      // mode only applies on create; enforce it on an existing file too.
+      try {
+        chmodSync(this.config.crashDumpFile, 0o600);
+      } catch {
+        // Best effort; the write itself already succeeded.
+      }
+    } catch {
+      // Disk full, missing dir, read-only mount — degrade silently.
+    }
+  }
+
+  /** Load the previous run's dump into the read-only lastcrash slot, if present. */
+  private loadCrashDump(): void {
+    if (!this.config.crashDump) return;
+    try {
+      const raw: unknown = JSON.parse(readFileSync(this.config.crashDumpFile, 'utf8'));
+      const events = (raw as { events?: unknown }).events;
+      if (Array.isArray(events)) {
+        this.#lastCrash = events.filter(isActivityEvent).slice(-this.config.crashDumpEvents);
+        if (this.#lastCrash.length > 0) {
+          this.logger.log(`reloaded ${this.#lastCrash.length} event(s) from the previous run`);
+        }
+      }
+    } catch {
+      // No dump, unreadable, or corrupt — start with an empty lastcrash slot.
+    }
   }
 
   private sample(): void {
@@ -162,6 +216,17 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
       ? scrubbed.slice(0, this.config.maxFieldLen)
       : scrubbed;
   }
+}
+
+/** A reloaded dump is untrusted input: keep only rows that look like events. */
+function isActivityEvent(value: unknown): value is ActivityEvent {
+  return (
+    typeof value === 'object'
+    && value !== null
+    && typeof (value as { seq?: unknown }).seq === 'number'
+    && typeof (value as { ts?: unknown }).ts === 'number'
+    && typeof (value as { kind?: unknown }).kind === 'string'
+  );
 }
 
 function clampLimit(limit: number | undefined, cap: number): number {

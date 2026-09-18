@@ -22,6 +22,8 @@ const ActivityQuery = z
     limit: z.coerce.number().int().positive().max(50_000).optional(),
     sinceSeq: z.coerce.number().int().nonnegative().optional(),
     kind: z.enum(ACTIVITY_KINDS).optional(),
+    // 'lastcrash' reads the previous run's reloaded dump; default is the live ring.
+    scope: z.enum(['current', 'lastcrash']).optional(),
   })
   .strict();
 
@@ -72,7 +74,7 @@ export class AdminController {
     if (!parsed.success) {
       throw new TeeError(
         'TEE_INVALID_BODY',
-        invalidBodyMessage('query must be { limit?, sinceSeq?, kind? }', parsed.error, query),
+        invalidBodyMessage('query must be { limit?, sinceSeq?, kind?, scope? }', parsed.error, query),
       );
     }
     noStore(res);
