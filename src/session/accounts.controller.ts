@@ -15,6 +15,7 @@ import { assertValidAccountSlug } from './account-slug';
 import { AccountsService } from './accounts.service';
 import { SessionRegistry, type Session } from './session.registry';
 import { WalletTagsService } from './wallet-tags.service';
+import { WalletBufferService } from './wallet-buffer.service';
 import { parseWalletId } from './wallet-id';
 import {
   accountView,
@@ -54,6 +55,7 @@ export class AccountsController {
     private readonly accounts: AccountsService,
     private readonly sessions: SessionRegistry,
     private readonly walletTags: WalletTagsService,
+    private readonly buffer: WalletBufferService,
   ) {}
 
   @Post()
@@ -114,6 +116,24 @@ export class AccountsController {
       assertValidAccountSlug(slug),
       parsed.data.count,
     );
+  }
+
+  /**
+   * Hand this HD account's next wallet to a new user. In buffer mode
+   * (BUFFER_SIZE > 0) it returns a pre-derived wallet and refills the buffer
+   * asynchronously; otherwise it derives one on demand. One creation request,
+   * no key derivation on the critical path.
+   */
+  @Post(':slug/wallets/allocate')
+  @HttpCode(201)
+  @RequireScopes('write')
+  async allocate(
+    @CurrentSession() session: Session,
+    @CurrentTokenTenant() tenant: Tenant,
+    @Param('slug') slug: string,
+  ): Promise<{ wallet: WalletView }> {
+    const wallet = await this.buffer.allocate(session, tenant, assertValidAccountSlug(slug));
+    return { wallet: walletView(wallet) };
   }
 
   @Post(':slug/wallets/import')

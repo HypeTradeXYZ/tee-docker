@@ -36,13 +36,13 @@ describe('validation error taxonomy', () => {
       .token(tenant, null)],
     ['token refresh', () => new AuthController(forbidden as never, forbidden as never, forbidden as never)
       .refresh(tenant, session, 'lease', { extra: true }, response)],
-    ['account create', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never)
+    ['account create', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never, forbidden as never)
       .create(session, tenant, null)],
-    ['wallet derive', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never)
+    ['wallet derive', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never, forbidden as never)
       .derive(session, tenant, 'account-a', null)],
-    ['key import', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never)
+    ['key import', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never, forbidden as never)
       .importKey(session, tenant, 'account-a', null)],
-    ['tag replace', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never)
+    ['tag replace', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never, forbidden as never)
       .setTags(session, 'account-a', '0', null)],
     ['RPC update', () => new NetworksController(forbidden as never).setRpc(session, tenant, 'ethereum', null)],
     ['message sign', () => new SignController(forbidden as never).message(session, null)],
@@ -271,7 +271,7 @@ describe('validation error taxonomy', () => {
       const replace = jest.fn();
       const controller = new AccountsController({} as never, { requireAccount } as never, {
         replace,
-      } as never);
+      } as never, {} as never);
 
       await expect(controller.addresses(session, 'account-a', id)).rejects.toMatchObject({
         code: 'PARAMETER_ERROR',
