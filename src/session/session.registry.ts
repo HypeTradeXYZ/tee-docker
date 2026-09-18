@@ -148,6 +148,7 @@ export class SessionRegistry implements OnApplicationShutdown {
   readonly #lifecycle = new KeyedMutex();
   readonly #lifecycleJobs = new Set<Promise<unknown>>();
   readonly #accountExpiryTasks = new Set<Promise<void>>();
+  readonly #backgroundJobs = new Set<Promise<unknown>>();
   #sweeper: NodeJS.Timeout | null = null;
   #sweepInFlight: Promise<void> | null = null;
   #shuttingDown = false;
@@ -187,6 +188,11 @@ export class SessionRegistry implements OnApplicationShutdown {
           .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
           .map((result) => result.reason),
       );
+    }
+    // Fire-and-forget core work (buffer replenishment) holds a session mutex;
+    // let it drain before locking handles so no derivation races the lock.
+    if (this.#backgroundJobs.size > 0) {
+      await Promise.allSettled([...this.#backgroundJobs]);
     }
     // A sweep may already own or be queued for a session mutex. Let it finish
     // before locking handles so no cleanup touches core after custody drains.
@@ -683,6 +689,37 @@ export class SessionRegistry implements OnApplicationShutdown {
       const entry = this.#workspaces.get(key);
       if (entry?.session === session) await this.closeEntry(entry);
     });
+  }
+
+  /**
+   * Run core work on a session in the background — off the request path — under
+   * the same mutex and revocation guards as a request. Never awaited by the
+   * caller and never throws to it: a closing or expired session is an expected
+   * skip (the work simply retries on a later request), and shutdown drains any
+   * job already in flight before it locks handles. `onSettled` always runs.
+   */
+  scheduleBackground(
+    session: Session,
+    label: string,
+    fn: () => Promise<void>,
+    onSettled?: () => void,
+  ): void {
+    const run = async (): Promise<void> => {
+      try {
+        await this.withSession(session, fn);
+      } catch (err) {
+        this.logger.warn(`background ${label} skipped: ${String(err)}`);
+      } finally {
+        try {
+          onSettled?.();
+        } catch (settleError) {
+          this.logger.warn(`background ${label} settle failed: ${String(settleError)}`);
+        }
+      }
+    };
+    const job = run();
+    this.#backgroundJobs.add(job);
+    void job.finally(() => this.#backgroundJobs.delete(job));
   }
 
   /** Serialize every core-backed HTTP handler on the singleton workspace handle. */

@@ -22,6 +22,8 @@ import {
 } from './session/session.registry';
 import { SESSION_CAPACITY, sessionCapacityFromEnv } from './session/session-capacity';
 import { WorkspaceMutexInterceptor } from './session/workspace-mutex.interceptor';
+import { WalletBufferService } from './session/wallet-buffer.service';
+import { BUFFER_CONFIG, bufferConfigFromEnv } from './session/buffer-config';
 import { WorkspaceController } from './session/workspace.controller';
 import { AccountsController } from './session/accounts.controller';
 import { AccountsService } from './session/accounts.service';
@@ -102,6 +104,9 @@ import { RequestActivityInterceptor } from './observability/request-activity.int
     { provide: APP_INTERCEPTOR, useClass: WorkspaceMutexInterceptor },
     AccountsService,
     WalletTagsService,
+    // Env parsed inside the factory (main.ts loads env after the static import).
+    { provide: BUFFER_CONFIG, useFactory: () => bufferConfigFromEnv() },
+    WalletBufferService,
     // NOT global: Nest runs global guards BEFORE controller-level ones, so a
     // global ScopesGuard would read req.scopes before WorkspaceGuard sets it
     // and deny every scoped route. Applied per-controller, after the guard
