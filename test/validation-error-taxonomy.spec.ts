@@ -4,7 +4,6 @@ import { AuthController } from '../src/auth/auth.controller';
 import { ExportController } from '../src/export/export.controller';
 import { AccountsController } from '../src/session/accounts.controller';
 import { AccountsService } from '../src/session/accounts.service';
-import { NetworksController } from '../src/session/networks.controller';
 import { SignController } from '../src/session/sign.controller';
 import { WorkspaceController } from '../src/session/workspace.controller';
 import { WorkspacesController } from '../src/workspaces/workspaces.controller';
@@ -43,7 +42,6 @@ describe('validation error taxonomy', () => {
       .importKey(session, tenant, 'account-a', null)],
     ['tag replace', () => new AccountsController(forbidden as never, forbidden as never, forbidden as never, forbidden as never)
       .setTags(session, 'account-a', '0', null)],
-    ['RPC update', () => new NetworksController(forbidden as never).setRpc(session, tenant, 'ethereum', null)],
     ['message sign', () => new SignController(forbidden as never).message(session, null)],
     ['typed-data sign', () => new SignController(forbidden as never).typedData(session, null)],
     ['account unlock', () => new WorkspaceController(forbidden as never, forbidden as never)

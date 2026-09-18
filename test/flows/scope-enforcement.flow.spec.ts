@@ -92,7 +92,6 @@ describe('scope-enforcement-flow', () => {
     { method: 'post', path: '/v1/accounts/no-such-account/wallets', body: {} },
     { method: 'post', path: '/v1/accounts/no-such-account/wallets/import', body: {} },
     { method: 'put', path: '/v1/accounts/no-such-account/wallets/0/tags', body: {} },
-    { method: 'put', path: '/v1/workspace/networks/no-such-network', body: {} },
   ];
 
   it.each(writeRoutes)('requires write for $method $path', async ({ method, path, body }) => {
@@ -165,10 +164,10 @@ describe('scope-enforcement-flow', () => {
 
   it('allows write-only tokens on mutation routes', async () => {
     await http()
-      .put('/v1/workspace/networks/base')
+      .post('/v1/accounts')
       .set(bearer(writeToken))
-      .send({ rpcUrl: 'https://1.1.1.1/c01' })
-      .expect(200);
+      .send({ displayName: 'Write Probe', kind: 'HD' })
+      .expect(201);
   });
 
   it('marks account lock and unlock as explicit scope-independent lifecycle routes', async () => {

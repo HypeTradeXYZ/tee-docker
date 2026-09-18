@@ -193,38 +193,13 @@ describe('accounts-sign-export-flow', () => {
     });
   });
 
-  describe('BYO RPC', () => {
-    it('reports the tenant-configured endpoint as tenant-sourced', async () => {
+  describe('network registry (read-only)', () => {
+    it('lists the workspace networks without an rpc source', async () => {
       const res = await http().get('/v1/workspace/networks').set(bearer()).expect(200);
       const eth = res.body.networks.find((n: { slug: string }) => n.slug === 'ethereum');
-      // Seeded from the tenant config at workspace creation.
-      expect(eth.rpcSource).toBe('tenant');
-    });
-
-    it('reports an unconfigured network as builtin', async () => {
-      const res = await http().get('/v1/workspace/networks').set(bearer()).expect(200);
-      const other = res.body.networks.find((n: { slug: string }) => n.slug === 'base');
-      expect(other.rpcSource).toBe('builtin');
-    });
-
-    it('accepts a per-workspace override', async () => {
-      await http()
-        .put('/v1/workspace/networks/base')
-        .set(bearer())
-        .send({ rpcUrl: 'https://1.1.1.1/base' })
-        .expect(200);
-
-      const res = await http().get('/v1/workspace/networks').set(bearer()).expect(200);
-      const base = res.body.networks.find((n: { slug: string }) => n.slug === 'base');
-      expect(base.rpcSource).toBe('tenant');
-    });
-
-    it('rejects a non-URL endpoint', async () => {
-      await http()
-        .put('/v1/workspace/networks/base')
-        .set(bearer())
-        .send({ rpcUrl: 'not-a-url' })
-        .expect(400);
+      expect(eth).toMatchObject({ slug: 'ethereum', chainId: 1, vm: 'evm' });
+      // tee-docker no longer relays RPC, so no rpcSource is reported.
+      expect(eth.rpcSource).toBeUndefined();
     });
   });
 

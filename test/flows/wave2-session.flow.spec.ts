@@ -92,9 +92,9 @@ describe('wave-2 singleton session', () => {
         .set(bearer(tokens[1]!))
         .send({ privateKey: privateKey('3') }),
       http()
-        .put('/v1/workspace/networks/base')
+        .put(`/v1/accounts/${slug}/wallets/0/tags`)
         .set(bearer(tokens[2]!))
-        .send({ rpcUrl: 'https://1.1.1.1/wave-2' }),
+        .send({ tags: ['wave-2'] }),
       http()
         .post('/v1/accounts')
         .set(bearer(tokens[3]!))
@@ -230,8 +230,8 @@ describe('wave-2 singleton session', () => {
       .set(bearer(reopened.body.token))
       .expect(200);
     expect(
-      networks.body.networks.find((item: { slug: string }) => item.slug === 'base').rpcSource,
-    ).toBe('tenant');
+      networks.body.networks.find((item: { slug: string }) => item.slug === 'base'),
+    ).toMatchObject({ slug: 'base', vm: 'evm' });
     open.mockRestore();
   });
 
@@ -381,10 +381,10 @@ describe('wave-2 refresh', () => {
     await http().get('/v1/workspace').set(bearer(refreshed[0]!.body.token)).expect(401);
     await http().get('/v1/workspace').set(bearer(b.body.token)).expect(403);
     await http()
-      .put('/v1/workspace/networks/base')
+      .post('/v1/accounts')
       .set(bearer(b.body.token))
-      .send({ rpcUrl: 'https://1.1.1.1/refresh' })
-      .expect(200);
+      .send({ displayName: 'Refresh Probe', kind: 'HD' })
+      .expect(201);
     await http().post('/v1/auth/token/refresh').set(bearer(b.body.token)).send({}).expect(200);
     await http().delete('/v1/auth/token').set(bearer(b.body.token)).expect(204);
     expect(harness.app.get(SessionRegistry).size).toBe(0);

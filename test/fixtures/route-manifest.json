@@ -32,6 +32,5 @@
   "POST /v1/sign/message",
   "POST /v1/sign/typed-data",
   "POST /v1/workspaces",
-  "PUT /v1/accounts/:slug/wallets/:id/tags",
-  "PUT /v1/workspace/networks/:slug"
+  "PUT /v1/accounts/:slug/wallets/:id/tags"
 ]
