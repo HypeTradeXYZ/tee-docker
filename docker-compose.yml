@@ -85,13 +85,16 @@ services:
       - TEE_MAX_RPC_OPERATIONS_PER_TENANT=8
       - TEE_RPC_DEADLINE_MS=15000
 
-      # Wallet buffer mode. 0 keeps derive-on-demand (rough mode). Set > 0 to
-      # pre-derive wallets under an HD account and hand them out from a buffer:
-      # POST /accounts/{slug}/wallets/allocate returns a pre-derived wallet and
-      # refills asynchronously when the free pool drops below BUFFER_SIZE/2. The
-      # value is the refill batch; it raises how many wallets a tenant holds
-      # unallocated (they count against its wallet ceiling).
-      - BUFFER_SIZE=0
+      # Wallet buffer mode. Bare name so it inherits from Dokploy's Environment
+      # tab (like the secrets above); unset means 0 = derive-on-demand (rough
+      # mode). Set BUFFER_SIZE > 0 there to pre-derive wallets under an HD
+      # account and hand them out from a buffer: POST
+      # /accounts/{slug}/wallets/allocate returns a pre-derived wallet and
+      # refills asynchronously below BUFFER_SIZE/2. The value is the refill
+      # batch; it raises how many wallets a tenant holds unallocated (they count
+      # against its wallet ceiling). A literal here would override the tab, so
+      # keep it bare.
+      - BUFFER_SIZE
 
     # Host paths are literal on purpose. Compose resolves volume paths when it
     # PARSES this file, before any container exists, so a "${VAR}" here would
