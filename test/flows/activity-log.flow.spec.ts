@@ -70,6 +70,8 @@ describe('activity log flow', () => {
 
     const diag = await http.get('/v1/admin/diagnostics').set(adminHeaders).expect(200);
     expect(diag.body.activity).toMatchObject({ enabled: true, eventCap: expect.any(Number) });
+    // Buffer mode is observable here; the harness sets no BUFFER_SIZE, so it is off.
+    expect(diag.body.buffer).toEqual({ enabled: false, batchSize: 0, lowWatermark: 0 });
   });
 
   it('rejects an unknown query parameter', async () => {

@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { readdirSync, readFileSync } from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import { RpcBoundaryService, type RpcBoundaryDiagnostics } from '../session/rpc-boundary.service';
 import { SessionRegistry, type SessionRegistryDiagnostics } from '../session/session.registry';
 import { ActivityLog, type ActivityStats } from '../observability/activity-log.service';
+import { BUFFER_CONFIG, type BufferConfig } from '../session/buffer-config';
 
 const CORE_VERSION = (require('wative-core/package.json') as { version?: unknown }).version;
 
@@ -24,6 +25,14 @@ export interface DiagnosticsSnapshot {
   readonly sessions: SessionRegistryDiagnostics;
   readonly rpc: RpcBoundaryDiagnostics;
   readonly activity: ActivityStats;
+  readonly buffer: BufferSnapshot;
+}
+
+/** Whether wallet buffer mode is on and at what dials. */
+export interface BufferSnapshot {
+  readonly enabled: boolean;
+  readonly batchSize: number;
+  readonly lowWatermark: number;
 }
 
 /**
@@ -44,6 +53,7 @@ export class DiagnosticsService {
     private readonly sessions: SessionRegistry,
     private readonly rpcBoundary: RpcBoundaryService,
     private readonly activity: ActivityLog,
+    @Inject(BUFFER_CONFIG) private readonly buffer: BufferConfig,
   ) {
     this.loop.enable();
   }
@@ -67,6 +77,11 @@ export class DiagnosticsService {
       sessions: this.sessions.diagnostics(),
       rpc: this.rpcBoundary.diagnostics(),
       activity: this.activity.stats(),
+      buffer: {
+        enabled: this.buffer.enabled,
+        batchSize: this.buffer.batchSize,
+        lowWatermark: this.buffer.lowWatermark,
+      },
     };
   }
 }
