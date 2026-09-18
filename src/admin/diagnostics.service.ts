@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import { RpcBoundaryService, type RpcBoundaryDiagnostics } from '../session/rpc-boundary.service';
 import { SessionRegistry, type SessionRegistryDiagnostics } from '../session/session.registry';
+import { ActivityLog, type ActivityStats } from '../observability/activity-log.service';
 
 const CORE_VERSION = (require('wative-core/package.json') as { version?: unknown }).version;
 
@@ -22,6 +23,7 @@ export interface DiagnosticsSnapshot {
   };
   readonly sessions: SessionRegistryDiagnostics;
   readonly rpc: RpcBoundaryDiagnostics;
+  readonly activity: ActivityStats;
 }
 
 /**
@@ -41,6 +43,7 @@ export class DiagnosticsService {
   constructor(
     private readonly sessions: SessionRegistry,
     private readonly rpcBoundary: RpcBoundaryService,
+    private readonly activity: ActivityLog,
   ) {
     this.loop.enable();
   }
@@ -63,6 +66,7 @@ export class DiagnosticsService {
       },
       sessions: this.sessions.diagnostics(),
       rpc: this.rpcBoundary.diagnostics(),
+      activity: this.activity.stats(),
     };
   }
 }

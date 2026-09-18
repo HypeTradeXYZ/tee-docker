@@ -5,17 +5,19 @@ import { redactForLog } from '../common/error.filter';
 import { ACTIVITY_CONFIG, type ActivityConfig } from './activity-config';
 
 /** Every event carries a monotonic seq (gap-free incremental pull) and a ts. */
-export type ActivityKind =
-  | 'request'
-  | 'error'
-  | 'session'
-  | 'mint'
-  | 'lease'
-  | 'ratelimit'
-  | 'rpc'
-  | 'provision'
-  | 'lifecycle'
-  | 'fatal';
+export const ACTIVITY_KINDS = [
+  'request',
+  'error',
+  'session',
+  'mint',
+  'lease',
+  'ratelimit',
+  'rpc',
+  'provision',
+  'lifecycle',
+  'fatal',
+] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 export interface ActivityEvent {
   readonly seq: number;
