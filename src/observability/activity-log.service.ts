@@ -206,16 +206,31 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
     if (this.#perf.length > this.config.perfCap) this.#perf.shift();
   }
 
-  /** Cap length and scrub relay URLs; drop anything not a plain scalar. */
+  /** Scrub relay URLs and token shapes, cap length; drop anything not a scalar. */
   private clean(raw: unknown): string | number | boolean | undefined {
     if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
     if (typeof raw === 'boolean') return raw;
     if (typeof raw !== 'string') return undefined;
-    const scrubbed = redactForLog(raw);
+    const scrubbed = scrubSecrets(redactForLog(raw));
     return scrubbed.length > this.config.maxFieldLen
       ? scrubbed.slice(0, this.config.maxFieldLen)
       : scrubbed;
   }
+}
+
+/**
+ * Defense in depth: every capture site passes only allowlisted safe fields, but
+ * a future one might not, so strip the token shapes outright before storage.
+ * A 40-hex wallet address is deliberately left intact (it is not a secret and
+ * is useful for tracing); only a 64-hex value (a 32-byte key) is scrubbed.
+ */
+function scrubSecrets(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer <redacted>')
+    .replace(/eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}/g, '<jwt>')
+    .replace(/\bsk-(?:ant-)?[A-Za-z0-9_-]{8,}/g, '<api-key>')
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g, '<token>')
+    .replace(/\b0x[0-9a-fA-F]{64}\b/g, '<hex-secret>');
 }
 
 /** A reloaded dump is untrusted input: keep only rows that look like events. */
