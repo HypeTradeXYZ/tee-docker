@@ -3,6 +3,7 @@ import { Wallet, type Account } from 'wative-core';
 import { ServiceStateService } from '../config/service-state.service';
 import type { WalletTagRecovery } from '../config/schemas';
 import type { Session } from './session.registry';
+import { isReservedTag, reservedTags } from './reserved-tags';
 
 /**
  * Replaces wallet tags with a durable old-value recovery record.
@@ -15,8 +16,24 @@ import type { Session } from './session.registry';
 export class WalletTagsService {
   constructor(private readonly state: ServiceStateService) {}
 
+  /**
+   * The caller-facing tag replacement. Reserved (sys:*) tags are internal
+   * state: they are stripped from the caller's request and the wallet's
+   * existing ones are carried across unchanged, so a caller can neither set nor
+   * clear them through this path.
+   */
   async replace(session: Session, wallet: Wallet, requested: readonly string[]): Promise<void> {
-    const desired = await normalizeWalletTags(requested);
+    const callerTags = await normalizeWalletTags(requested.filter((tag) => !isReservedTag(tag)));
+    await this.writeTags(session, wallet, [...callerTags, ...reservedTags(wallet.tags)]);
+  }
+
+  /** Add a reserved tag, keeping every other tag. Idempotent. Service-only. */
+  async setReservedTag(session: Session, wallet: Wallet, tag: string): Promise<void> {
+    if (wallet.tags.includes(tag)) return;
+    await this.writeTags(session, wallet, [...wallet.tags, tag]);
+  }
+
+  private async writeTags(session: Session, wallet: Wallet, desired: readonly string[]): Promise<void> {
     const oldTags = [...wallet.tags];
     if (sameTags(oldTags, desired)) return;
 

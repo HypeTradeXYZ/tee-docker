@@ -1,4 +1,5 @@
 import type { Account, Address, Wallet } from 'wative-core';
+import { publicTags } from './reserved-tags';
 
 /**
  * Response shapes.
@@ -40,7 +41,8 @@ export const addressView = (a: Address): AddressView => ({
 
 export const walletView = (w: Wallet): WalletView => ({
   id: w.id,
-  tags: w.tags,
+  // Reserved (sys:*) tags are internal state and never leave in a response.
+  tags: publicTags(w.tags),
   addresses: w.addresses.map(addressView),
 });
 

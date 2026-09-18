@@ -264,3 +264,26 @@ describe('wallet tag validation compatibility', () => {
       .rejects.toMatchObject({ code: 'PARAMETER_ERROR' });
   });
 });
+
+describe('reserved tag protection', () => {
+  it('strips reserved tags from a caller replace', async () => {
+    const f = fixture(['old-a']);
+    await f.service.replace(f.session, f.wallet, ['vip', 'sys:allocated', 'sys:anything']);
+    expect(f.tags()).toEqual(['vip']);
+  });
+
+  it('preserves an existing reserved tag across a caller replace', async () => {
+    const f = fixture(['sys:allocated', 'old-a']);
+    await f.service.replace(f.session, f.wallet, ['vip']);
+    expect(f.tags()).toEqual(['vip', 'sys:allocated']);
+  });
+
+  it('sets a reserved tag idempotently via the service-only path', async () => {
+    const f = fixture(['vip']);
+    await f.service.setReservedTag(f.session, f.wallet, 'sys:allocated');
+    expect(f.tags()).toEqual(['vip', 'sys:allocated']);
+    f.account._persist.mockClear();
+    await f.service.setReservedTag(f.session, f.wallet, 'sys:allocated');
+    expect(f.account._persist).not.toHaveBeenCalled(); // no-op when already present
+  });
+});
