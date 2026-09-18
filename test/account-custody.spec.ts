@@ -310,8 +310,7 @@ describe('account expiry scheduling', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 1, maxWallets: 10, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 100, workspaceAbsoluteSec: 100, accountAbsoluteSec: 1 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     } as const;
     const draft = {
       tenants: {
@@ -415,7 +414,7 @@ describe('account expiry scheduling', () => {
       id: 'acme', apiKey: 'ak_test_0123456789abcdef', secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 1, maxWallets: 1, maxUnlockedWorkspaces: 1 },
       ttl: { workspaceIdleSec: 100, workspaceAbsoluteSec: 100, accountAbsoluteSec: 1 },
-      rpc: {}, allowDefaultRpc: true, origins: [],
+      origins: [],
     } as const;
     const draft = { tenants: { acme: { walletTotal: 0, workspaces: [
       { slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 },

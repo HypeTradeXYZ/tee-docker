@@ -31,8 +31,7 @@ function tenantFixture(maxUnlockedWorkspaces = 2): Tenant {
     secretHash: '0'.repeat(64),
     limits: { maxWorkspaces: 3, maxWallets: 10, maxUnlockedWorkspaces },
     ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-    rpc: {},
-    allowDefaultRpc: true,    origins: [],
+    origins: [],
   };
 }
 
@@ -199,8 +198,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-test' } as Paths,
@@ -271,8 +269,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-open-failure-test' } as Paths,
@@ -335,8 +332,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-shutdown-failure-test' } as Paths,
@@ -397,8 +393,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-failure-test' } as Paths,
@@ -471,8 +466,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const registry = new SessionRegistry(
       { dataRoot: '/tmp/session-registry-sweep-shutdown-test' } as Paths,
@@ -515,8 +509,7 @@ describe('SessionRegistry close failure', () => {
       secretHash: '0'.repeat(64),
       limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
       ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-      rpc: {},
-      allowDefaultRpc: true,      origins: [],
+      origins: [],
     };
     const handle = {
       accounts: [],
@@ -1204,28 +1197,19 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
     expect(stateClose).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['clearAccountTimer', 'revokeWorkspace'])(
-    'still locks the handle when %s throws during close',
-    async (step) => {
-      const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
-      const { registry, stateClose } = fixture(lock);
-      await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
+  it('still locks the handle when clearAccountTimer throws during close', async () => {
+    const lock = jest.fn<Promise<void>, []>().mockResolvedValue(undefined);
+    const { registry, stateClose } = fixture(lock);
+    await registry.create(tenantFixture(), 'desk-a', 'password', ['read']);
 
-      if (step === 'clearAccountTimer') {
-        jest
-          .spyOn(registry as unknown as { clearAccountTimer: () => void }, 'clearAccountTimer')
-          .mockImplementation(() => { throw new Error(`${step} exploded`); });
-      } else {
-        (registry as unknown as { rpcBoundary?: { revokeWorkspace: () => void } }).rpcBoundary = {
-          revokeWorkspace: () => { throw new Error(`${step} exploded`); },
-        };
-      }
+    jest
+      .spyOn(registry as unknown as { clearAccountTimer: () => void }, 'clearAccountTimer')
+      .mockImplementation(() => { throw new Error('clearAccountTimer exploded'); });
 
-      await expect(registry.lockAllHandlesBestEffort()).resolves.toBeDefined();
-      expect(lock).toHaveBeenCalledTimes(1);
-      expect(stateClose).toHaveBeenCalledTimes(1);
-    },
-  );
+    await expect(registry.lockAllHandlesBestEffort()).resolves.toBeDefined();
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(stateClose).toHaveBeenCalledTimes(1);
+  });
 
   it('still locks the handle when the failure logger itself throws', async () => {
     // The guards' own catch must be total, or the first throwing step aborts

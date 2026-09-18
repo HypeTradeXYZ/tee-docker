@@ -64,7 +64,6 @@ describe('workspace password policy', () => {
       ...DEFAULT_TENANT,
       id: 'constructor',
       limits: { maxWorkspaces: 2, maxWallets: 2, maxUnlockedWorkspaces: 1 },
-      rpc: {},
     } as Tenant;
 
     await expect(service.create(tenant, 'constructor', 'Workspace-Passw0rd!x')).rejects.toBe(stop);

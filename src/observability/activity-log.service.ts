@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { chmodSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
-import { redactForLog } from '../common/error.filter';
 import { ACTIVITY_CONFIG, type ActivityConfig } from './activity-config';
 
 /** Every event carries a monotonic seq (gap-free incremental pull) and a ts. */
@@ -12,7 +11,6 @@ export const ACTIVITY_KINDS = [
   'mint',
   'lease',
   'ratelimit',
-  'rpc',
   'provision',
   'lifecycle',
   'fatal',
@@ -60,10 +58,10 @@ export type ActivityScope = 'current' | 'lastcrash';
  * A dependency-free leaf on purpose — every capture site (the error filter, the
  * request interceptor, the session registry) depends on THIS, so it must depend
  * on nothing that could form a cycle. The perf sampler therefore reads only
- * process-level gauges; live session/RPC counts are joined at pull time.
+ * process-level gauges; live session counts are joined at pull time.
  *
  * Redaction happens at capture, never at read: the ring only ever holds
- * length-capped, relay-URL-scrubbed scalars, so even a crash dump of it cannot
+ * length-capped, secret-scrubbed scalars, so even a crash dump of it cannot
  * spill a secret it never stored.
  */
 @Injectable()
@@ -206,12 +204,12 @@ export class ActivityLog implements OnModuleInit, OnModuleDestroy {
     if (this.#perf.length > this.config.perfCap) this.#perf.shift();
   }
 
-  /** Scrub relay URLs and token shapes, cap length; drop anything not a scalar. */
+  /** Scrub token shapes, cap length; drop anything not a scalar. */
   private clean(raw: unknown): string | number | boolean | undefined {
     if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
     if (typeof raw === 'boolean') return raw;
     if (typeof raw !== 'string') return undefined;
-    const scrubbed = scrubSecrets(redactForLog(raw));
+    const scrubbed = scrubSecrets(raw);
     return scrubbed.length > this.config.maxFieldLen
       ? scrubbed.slice(0, this.config.maxFieldLen)
       : scrubbed;

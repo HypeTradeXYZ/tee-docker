@@ -35,7 +35,7 @@ export interface BufferSnapshot {
 
 /**
  * A read-only operational snapshot for remote diagnosis over HTTP. Admin-tier
- * only — the gauges (FD/memory/session/RPC counts) are profiling information, so
+ * only — the gauges (FD/memory/session counts) are profiling information, so
  * this lives behind the super-admin key, never on the public health probe.
  *
  * Everything here is a cheap in-process read: no locks, no core calls, no I/O

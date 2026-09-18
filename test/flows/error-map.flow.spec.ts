@@ -119,10 +119,8 @@ describe('error-map', () => {
     //   TEE_INVALID_SLUG   -> tells the caller the accepted slug charset
     //   TEE_ACCOUNT_LOCKED -> names which account needs unlocking
     //   TEE_SCOPE_DENIED   -> names which scope the token lacks
-    //   TEE_RPC_NOT_CONFIGURED -> names which network has no endpoint
     //   TEE_SESSION_CAPACITY -> names only the exhausted scope and configured limit
     //   TEE_ACCOUNT_UNLOCK_RATE -> names only a finite retry delay
-    //   TEE_RPC_CAPACITY -> names only the exhausted scope and configured limit
     //   workspace creation/cooldown limits -> name only a finite retry delay
     //   TEE_ADMIN_RATE -> names only a finite retry delay
     //   TEE_LIMIT_NOT_RAISED -> names the limit, its configured value and the
@@ -134,11 +132,9 @@ describe('error-map', () => {
         'TEE_INVALID_SLUG',
         'TEE_ACCOUNT_LOCKED',
         'TEE_SCOPE_DENIED',
-        'TEE_RPC_NOT_CONFIGURED',
         'TEE_UNLOCK_CAPACITY',
         'TEE_SESSION_CAPACITY',
         'TEE_ACCOUNT_UNLOCK_RATE',
-        'TEE_RPC_CAPACITY',
         'TEE_WORKSPACE_CREATE_RATE',
         'TEE_WORKSPACE_RECREATE_COOLDOWN',
         'TEE_ADMIN_RATE',
@@ -156,8 +152,6 @@ describe('error-map', () => {
       'RPC_UNREACHABLE',
       'RPC_REJECTED',
       'UNSUPPORTED_OP',
-      'TEE_RPC_UNREACHABLE',
-      'TEE_BALANCES_UNAVAILABLE',
     ]));
     for (const code of optedIn) {
       expect(service.resolve(code).publicMessage).toEqual(expect.any(String));

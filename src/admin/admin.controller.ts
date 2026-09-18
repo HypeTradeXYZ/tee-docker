@@ -55,7 +55,7 @@ export class AdminController {
     private readonly activity: ActivityLog,
   ) {}
 
-  // Read-only operational snapshot for remote diagnosis (FD/memory/session/RPC
+  // Read-only operational snapshot for remote diagnosis (FD/memory/session
   // gauges). Behind the same X-Admin-Key as the limits route — these internals
   // are profiling information and never belong on the public health probe.
   @Get('diagnostics')

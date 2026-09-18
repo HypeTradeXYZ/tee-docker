@@ -78,8 +78,6 @@ function normalizeTenant(raw: RawTenant): Tenant {
     secretHash: raw.secretHash,
     limits: raw.limits,
     ttl: raw.ttl ?? TtlSchema.parse({}),
-    rpc: raw.rpc ?? {},
-    allowDefaultRpc: raw.allowDefaultRpc ?? true,
     origins: raw.origins ?? [],
   };
 }

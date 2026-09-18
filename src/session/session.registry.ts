@@ -309,9 +309,8 @@ export class SessionRegistry implements OnApplicationShutdown {
     //
     // Released unconditionally, deliberately. A conditional release was tried
     // and reverted: retaining the lock whenever a handle was still held made a
-    // stranded lock DETERMINISTIC on a busy service, because the RPC deadline
-    // (15s) exceeds this drain deadline (5s) and closeEntry waits on the same
-    // session mutex a request holds. It bought protection against a successor
+    // stranded lock possible on a busy service, because closeEntry waits on the
+    // same session mutex a request holds. It bought protection against a successor
     // starting inside the release-to-exit gap — measured at 0.13-0.37ms, with
     // this function's only caller exiting in its own `finally`, so no
     // supervisor can observe it. It also did not establish the invariant it

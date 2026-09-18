@@ -12,10 +12,9 @@ interface NetworkView {
 }
 
 /**
- * The networks a workspace knows, seeded at creation from the tenant config and
- * wative-core's built-ins. tee-docker signs but never relays chain RPC, so this
- * is a read-only registry view — a network's RPC endpoint is the caller's to
- * hold and call.
+ * The networks a workspace knows, from wative-core's built-ins. tee-docker
+ * signs but never relays chain RPC, so this is a read-only registry view — a
+ * network's RPC endpoint is the caller's to hold and call.
  */
 @Controller('workspace/networks')
 @UseGuards(WorkspaceGuard, ScopesGuard, AccountScopeGuard, WalletScopeGuard)

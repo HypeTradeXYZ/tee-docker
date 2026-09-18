@@ -17,10 +17,9 @@ describe('config/tenants.example.json', () => {
   );
 
   /**
-   * Parsing is not booting. RpcBoundaryService resolves every tenant `rpc`
-   * endpoint over live DNS in onModuleInit and refuses to start on a failure,
-   * which no unit test reaches — so this proves the schema layer only, and a
-   * file that passes here can still fail closed at startup.
+   * Parsing is not booting. This proves the schema layer only: a file that
+   * passes here can still fail closed at startup on other checks, such as the
+   * KDF readiness probe or storage permissions.
    */
   it('parses as shipped', () => {
     expect(TenantsConfigSchema.safeParse({ tenants: raw.tenants }).success).toBe(true);

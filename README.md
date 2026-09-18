@@ -1,8 +1,9 @@
 # TEE Docker
 
 TEE Docker is a HTTP service for creating and using managed wallet workspaces. It gives an
-application one consistent API for accounts, wallets, addresses, signing, transactions,
-and optional encrypted key export.
+application one consistent API for accounts, wallets, addresses, signing,
+and optional encrypted key export. It custodies keys and signs; you broadcast
+the signed payload yourself.
 
 This guide is for application developers, integrators, operators, and reviewers. You do NOT need
 to understand wallet storage internals to use the service.
@@ -16,7 +17,7 @@ Full documentation — every route, every error code, deployment and browser acc
 - A **workspace**([Wative Workspace](https://github.com/braady/wative-core#workspace--open--unlock--lock)) is a password-protected collection of accounts and wallets.
 - A **workspace token** opens one workspace for a limited time.
 - A token has permissions called **scopes**: `read`, `write`, `sign`, and optional `export`.
-- An **account** contains wallets; wallets contain addresses used for balances and transactions.
+- An **account** contains wallets; wallets contain addresses used for signing.
 
 Tenant credentials are used only for workspace administration and requesting workspace tokens.
 Most day-to-day API calls use a workspace token.
@@ -145,11 +146,11 @@ All routes use the `/v1` prefix.
 | View or remove an account | `GET/DELETE /accounts/:slug` | Workspace token |
 | List, derive, or import wallets | `/accounts/:slug/wallets` | Workspace token |
 | View addresses | `GET /accounts/:slug/wallets/:id/addresses` | Workspace token |
-| Check balance availability (currently `501`) | `GET /addresses/:publicKey/balances` | Workspace token |
-| View or update network endpoints | `/workspace/networks` | Workspace token |
+| View networks | `GET /workspace/networks` | Workspace token |
 | Sign a message | `POST /sign/message` | `sign` scope |
 | Sign EIP-712 typed data | `POST /sign/typed-data` | `sign` scope |
-| Build, simulate, send, or check a transaction | `/transactions` | `sign` scope |
+| Sign a raw 32-byte digest (EVM) | `POST /sign/digest` | `sign` scope |
+| Sign raw bytes (Solana) | `POST /sign/bytes` | `sign` scope |
 | Export an encrypted recovery phrase or private key | Account export routes | Unlimited API key + inquiry key |
 
 The default workspace token includes `read`, `write`, and `sign`. Export is not a workspace-token
@@ -248,7 +249,7 @@ underscores, or hyphens. If it is missing or unsafe, the service creates a safe 
 same ID appears in the response header and error body.
 
 Common situations include expired tokens (`session_expired`), missing permissions
-(`scope_denied`), usage limits, unavailable network providers, and invalid request data.
+(`scope_denied`), usage limits, and invalid request data.
 On the operator endpoint, `admin_denied` means the super-admin key was missing or wrong,
 `tenant_not_found` names a tenant the operator config does not list, and `limit_not_raised`
 means the requested ceiling was below the configured one — that endpoint only raises limits.
@@ -262,11 +263,6 @@ Request bodies reject fields they do not recognise, and the message names the of
 carried out with that field missing, so it fails rather than being quietly dropped. The one
 exception is `typedData`, which is passed through as the signing engine defines it. `chain_id_mismatch` means a typed-data
 domain named a different chain than the one being signed for; see the signing notes above.
-
-Transaction submission returns `pending` when the provider accepted it. If it returns `unknown`,
-check `GET /v1/transactions/:hash?network=...` before sending again; the original transaction may
-still have reached the network. A status lookup the endpoint itself refuses answers `rpc_rejected`
-rather than `pending`, so a failing endpoint is never mistaken for a transaction still in flight.
 
 ## Safe usage
 

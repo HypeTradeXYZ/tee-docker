@@ -30,8 +30,7 @@ const tenant: Tenant = {
   secretHash: '0'.repeat(64),
   limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 2 },
   ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 3600, accountAbsoluteSec: 300 },
-  rpc: {},
-  allowDefaultRpc: true,  origins: [],
+  origins: [],
 };
 
 describe('account display-name admission', () => {

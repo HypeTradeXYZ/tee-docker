@@ -116,14 +116,14 @@ describe('cors-flow', () => {
       expect(res.headers['access-control-allow-origin']).toBe('*');
     });
 
-    it('exposes the three documented headers on a wildcard response, and no others', async () => {
+    it('exposes the two documented headers on a wildcard response, and no others', async () => {
       const res = await http().get('/v1/health').set('origin', OTHER).expect(200);
       const exposed = String(res.headers['access-control-expose-headers'])
         .toLowerCase()
         .split(',')
         .map((header) => header.trim())
         .sort();
-      expect(exposed).toEqual(['retry-after', 'x-request-id', 'x-rpc-source']);
+      expect(exposed).toEqual(['retry-after', 'x-request-id']);
     });
 
     it('never allows credentials, because nothing here reads a cookie', async () => {

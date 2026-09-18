@@ -48,32 +48,6 @@ describe('reviewed transaction/RPC error rendering', () => {
   });
 
   it.each([
-    ['TEE_RPC_UNREACHABLE', 502, 'rpc_unreachable', 'the RPC endpoint could not be reached'],
-    [
-      'TEE_BALANCES_UNAVAILABLE',
-      501,
-      'not_implemented',
-      'Balance lookup is not available in this release.',
-    ],
-  ] as const)('uses reviewed fixed text for %s', (teeCode, status, code, message) => {
-    const json = jest.fn();
-    const host = {
-      switchToHttp: () => ({
-        getResponse: () => ({ status: () => ({ json }) }),
-        getRequest: () => ({ requestId: 'fixed-tee-message' }),
-      }),
-    } as unknown as ArgumentsHost;
-    filter.catch(new TeeError(teeCode, 'SECRET https://user:pass@example.test/rpc/CAP', {
-      raw: 'SECRET_RAW_TX',
-    }), host);
-    const body = json.mock.calls[0]?.[0];
-    expect(body).toEqual({
-      error: { code, message, status, requestId: 'fixed-tee-message' },
-    });
-    expect(JSON.stringify(body)).not.toMatch(/SECRET|user:pass|\/rpc\/|RAW_TX/);
-  });
-
-  it.each([
     'PROVIDER_IO',
     'DECRYPT_FAILED',
     'ENCRYPT_FAILED',
@@ -266,7 +240,7 @@ describe('plain HTTP-status error rendering', () => {
       { get: () => { throw new Error('core get trap secret'); } },
     )],
     ['throwing TeeError proxy', new Proxy(
-      new TeeError('TEE_RPC_UNREACHABLE', 'wrapped tee secret'),
+      new TeeError('TEE_ACCOUNT_LOCKED', 'wrapped tee secret'),
       { get: () => { throw new Error('tee get trap secret'); } },
     )],
     ['throwing toString', { toString: () => { throw new Error('string trap secret'); } }],

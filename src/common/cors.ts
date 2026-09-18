@@ -19,8 +19,8 @@ interface CorsRequest {
   headers: Record<string, string | string[] | undefined>;
 }
 
-/** Unreadable from script unless named here, and all three are documented as readable. */
-const EXPOSED_HEADERS = ['x-request-id', 'retry-after', 'x-rpc-source'];
+/** Unreadable from script unless named here, and both are documented as readable. */
+const EXPOSED_HEADERS = ['x-request-id', 'retry-after'];
 
 const ALLOWED_HEADERS = [
   'authorization',
@@ -62,7 +62,7 @@ function pathOf(req: CorsRequest): string {
 
 /**
  * Browser access, split by route. The scoped-key routes (accounts, wallets,
- * signing, transactions, export, and the rest of the bearer surface) allow any
+ * signing, export, and the rest of the bearer surface) allow any
  * origin, because a scoped API key is designed to be held in an end user's
  * browser on a domain the operator does not know. The six tenant-credential
  * routes keep the per-tenant `origins` allowlist, because those credentials are

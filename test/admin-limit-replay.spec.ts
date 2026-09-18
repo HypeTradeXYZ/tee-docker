@@ -21,8 +21,7 @@ function tenant(overrides: Partial<Tenant> = {}): Tenant {
     secretHash: hashApiSecret('secret', SERVER_KEY),
     limits: { maxWorkspaces: 2, maxWallets: 10, maxUnlockedWorkspaces: 8 },
     ttl: { workspaceIdleSec: 900, workspaceAbsoluteSec: 28_800, accountAbsoluteSec: 300 },
-    rpc: {},
-    allowDefaultRpc: true,    origins: [],
+    origins: [],
     ...overrides,
   };
 }

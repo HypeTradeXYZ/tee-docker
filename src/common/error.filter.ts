@@ -84,7 +84,7 @@ export class ErrorFilter implements ExceptionFilter {
     // reviewed fixed public text; their real exception detail still stays here.
     if (status >= 500) {
       this.logger.error(
-        `[${requestId}] ${body.error.code} ${status}: ${redactForLog(describe(exception))}`,
+        `[${requestId}] ${body.error.code} ${status}: ${describe(exception)}`,
         safeStack(exception),
       );
     } else {
@@ -361,24 +361,8 @@ function describe(exception: unknown): string {
 
 function safeStack(exception: unknown): string | undefined {
   try {
-    return exception instanceof Error ? redactForLog(exception.stack ?? '') : undefined;
+    return exception instanceof Error ? exception.stack : undefined;
   } catch {
     return undefined;
   }
-}
-
-/**
- * Relay capabilities are bearer authority even though they are loopback-only.
- *
- * Case-insensitive on purpose: a redactor must be at least as permissive as
- * whatever can produce the thing it redacts. `URL` preserves an upper-case
- * scheme, so a capability that reached a log line as `HTTP://…` would slip past
- * a lower-case-only pattern — and a redactor that misses is worse than none,
- * because it is trusted.
- */
-export function redactForLog(value: string): string {
-  return value.replace(
-    /http:\/\/127\.0\.0\.1:\d+\/rpc\/[A-Za-z0-9_-]+/gi,
-    '[rpc-relay]',
-  );
 }

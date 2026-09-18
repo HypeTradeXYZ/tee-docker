@@ -47,7 +47,6 @@ describe('ActivityLog ring', () => {
 describe('ActivityLog redaction at capture', () => {
   // Synthetic token fixtures — each proves the scrubber strips that shape.
   const cases: Array<[string, string, RegExp]> = [
-    ['relay url', 'http://127.0.0.1:9000/rpc/CAPabc', /\[rpc-relay\]/],
     ['bearer', 'Bearer abc.def.ghi', /Bearer <redacted>/],
     ['jwt', 'eyJhbGciOi.eyJzdWIiOi.sIgNaTuRe', /<jwt>/],
     ['api key', 'sk-ant-0123456789abcdef', /<api-key>/], // allow-redaction: synthetic scrubber fixture

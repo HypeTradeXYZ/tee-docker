@@ -72,15 +72,6 @@ export const TenantSchema = z.object({
   secretHash: z.string().regex(SECRET_HASH_RE, 'expected exactly 64 hexadecimal characters'),
   limits: LimitsSchema,
   ttl: TtlSchema.optional(),
-  /** Seeds a new workspace's network registry at creation. */
-  // Keys are network slugs and are looked up by exact slug, so an unconstrained
-  // key is config that can never match — the same dead-entry class the origin
-  // rule refuses. Left bare, `"Ethereum"` boots clean, warns once at the first
-  // workspace create, and leaves the endpoint permanently unused. The sibling
-  // records below already constrain their keys this way.
-  rpc: z.record(z.string().regex(SLUG_RE, 'network keys must be lowercase slugs'), z.url())
-    .optional(),
-  allowDefaultRpc: z.boolean().optional(),
   /** Browser origins allowed to read this tenant's responses. Absent allows none. */
   origins: z
     .array(
@@ -218,7 +209,5 @@ export interface Tenant {
   readonly secretHash: string;
   readonly limits: Limits;
   readonly ttl: Ttl;
-  readonly rpc: Readonly<Record<string, string>>;
-  readonly allowDefaultRpc: boolean;
   readonly origins: readonly string[];
 }

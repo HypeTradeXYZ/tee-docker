@@ -10,7 +10,7 @@ const MIN_PRIVATE_KEY_CHARS = 30;
 /**
  * accounts-sign-export-flow — the workspace-tier domain routes:
  * account and wallet creation under the cross-workspace wallet quota,
- * signing, BYO RPC resolution, and sealed export.
+ * signing, and sealed export.
  */
 describe('accounts-sign-export-flow', () => {
   let harness: Harness;
@@ -24,7 +24,6 @@ describe('accounts-sign-export-flow', () => {
     ...DEFAULT_TENANT,
     exportPublicKey: recipient.configured,
     limits: { maxWorkspaces: 2, maxWallets: 8 },
-    rpc: { ethereum: 'https://1.1.1.1/eth' },
   };
 
   beforeAll(async () => {
