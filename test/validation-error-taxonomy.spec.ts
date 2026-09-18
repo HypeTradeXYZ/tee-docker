@@ -6,7 +6,6 @@ import { AccountsController } from '../src/session/accounts.controller';
 import { AccountsService } from '../src/session/accounts.service';
 import { NetworksController } from '../src/session/networks.controller';
 import { SignController } from '../src/session/sign.controller';
-import { TransactionsController } from '../src/session/transactions.controller';
 import { WorkspaceController } from '../src/session/workspace.controller';
 import { WorkspacesController } from '../src/workspaces/workspaces.controller';
 import { parseNetworkSelector } from '../src/session/network-selector';
@@ -47,8 +46,6 @@ describe('validation error taxonomy', () => {
     ['RPC update', () => new NetworksController(forbidden as never).setRpc(session, tenant, 'ethereum', null)],
     ['message sign', () => new SignController(forbidden as never).message(session, null)],
     ['typed-data sign', () => new SignController(forbidden as never).typedData(session, null)],
-    ['transaction build', () => new TransactionsController(forbidden as never, forbidden as never, forbidden as never)
-      .build(session, tenant, null, response)],
     ['account unlock', () => new WorkspaceController(forbidden as never, forbidden as never)
       .unlock(session, tenant, 'account-a', null)],
   ])('classifies malformed %s bodies before downstream work', async (_name, invoke) => {
@@ -253,10 +250,6 @@ describe('validation error taxonomy', () => {
     for (const network of [undefined, '', ' ', ['ethereum'], ['ethereum', 'solana'], {}, 'x'.repeat(129)]) {
       await expect(new WorkspaceController(forbidden as never, forbidden as never)
         .assets(session, network)).rejects.toMatchObject({ code: 'PARAMETER_ERROR' });
-      await expect(new TransactionsController(forbidden as never, forbidden as never, forbidden as never)
-        .status(session, tenant, 'hash', network, response)).rejects.toMatchObject({
-        code: 'PARAMETER_ERROR',
-      });
     }
     await expect(new ExportController(forbidden as never)
       .privateKey(session, tenant, undefined, 'account-a', '1.5', 'evm')).rejects.toMatchObject({

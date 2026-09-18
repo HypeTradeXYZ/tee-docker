@@ -71,7 +71,6 @@ describe('scope-enforcement-flow', () => {
     '/v1/accounts/no-such-account/wallets',
     '/v1/accounts/no-such-account/wallets/0/addresses',
     '/v1/workspace/networks',
-    '/v1/addresses/no-such-address/balances',
   ];
 
   it.each(readRoutes)('requires read for GET %s', async (path) => {

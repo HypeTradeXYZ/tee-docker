@@ -31,9 +31,6 @@ import { WalletTagsService } from './session/wallet-tags.service';
 import { SignController } from './session/sign.controller';
 import { NetworksController } from './session/networks.controller';
 import { ExportController } from './export/export.controller';
-import { TransactionsController } from './session/transactions.controller';
-import { BalancesController } from './session/balances.controller';
-import { BalanceCapabilityGuard } from './session/balance-capability';
 import { ScopesGuard } from './auth/scopes.guard';
 import { HealthController } from './health/health.controller';
 import { ShutdownState } from './health/shutdown.state';
@@ -78,7 +75,7 @@ import { RequestActivityInterceptor } from './observability/request-activity.int
 
 @Module({
   imports: [ConfigModule],
-  controllers: [HealthController, WorkspacesController, AuthController, ApiKeyController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
+  controllers: [HealthController, WorkspacesController, AuthController, ApiKeyController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, AdminController],
   providers: [
     { provide: SERVER_KEY, useFactory: () => ServerKeyProvider.fromEnv() },
     // Same env-timing reason as the limiters: parse inside the factory.
@@ -137,7 +134,6 @@ import { RequestActivityInterceptor } from './observability/request-activity.int
     RpcBoundaryService,
     { provide: RPC_OPERATION_CONFIG, useFactory: rpcOperationConfigFromEnv },
     RpcOperationService,
-    BalanceCapabilityGuard,
     { provide: KDF_CHECK_CONFIG, useFactory: kdfCheckConfigFromEnv },
     { provide: KDF_PROBE_RUNNER, useValue: systemKdfProbeRunner },
     KdfCheckService,

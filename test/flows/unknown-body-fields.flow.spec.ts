@@ -96,26 +96,6 @@ describe('unknown-body-fields-flow', () => {
     expect(res.body.error.message).toContain(`unexpected field "${field}"`);
   });
 
-  // A dropped `value` built a zero-value transaction and a dropped `tokenMint`
-  // built a native transfer — both signable, both wrong, neither reported.
-  it.each([
-    [
-      'a misspelled value',
-      () => ({ address, to: '0x0000000000000000000000000000000000000001', valu: '1000' }),
-      'valu',
-    ],
-    [
-      'a misspelled tokenMint',
-      () => ({ address, recipient: 'r', amount: '1', tokenMintt: 'X' }),
-      'tokenMintt',
-    ],
-  ])('refuses %s on a transaction build', async (_name, body, field) => {
-    const res = await http().post('/v1/transactions/build').set(bearer()).send(body());
-    expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('invalid_body');
-    expect(res.body.error.message).toContain(`unexpected field "${field}"`);
-  });
-
   // The EIP-712 payload is the deliberate exception: core signs payloads that
   // carry keys it does not recognise, so tightening it would refuse requests
   // that work today. Only the envelope around it is strict.
