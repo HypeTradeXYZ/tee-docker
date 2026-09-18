@@ -29,6 +29,8 @@
   "POST /v1/auth/api-key",
   "POST /v1/auth/token",
   "POST /v1/auth/token/refresh",
+  "POST /v1/sign/bytes",
+  "POST /v1/sign/digest",
   "POST /v1/sign/message",
   "POST /v1/sign/typed-data",
   "POST /v1/workspaces",

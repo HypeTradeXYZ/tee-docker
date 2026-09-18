@@ -20,6 +20,21 @@ const SignTypedData = z.object({
   chainId: z.number().int().positive().optional(),
 }).strict();
 
+// Core signs a caller-supplied 32-byte digest verbatim (no keccak/prefix).
+const SignDigest = z.object({
+  address: z.string().min(1).max(128),
+  digest: z.string().regex(/^0x[0-9a-f]{64}$/, 'digest must be a lowercase 0x-hex 32-byte value'),
+}).strict();
+
+// Generous cap; a Solana message is ~1.2 KB. Core has no upper bound, so the
+// endpoint imposes one — an unbounded signable payload is a DoS surface.
+const MAX_SIGN_BYTES = 16 * 1024;
+const SignBytes = z.object({
+  address: z.string().min(1).max(128),
+  message: z.string().min(1),
+  encoding: z.enum(['hex', 'base64']).optional(),
+}).strict();
+
 /** One EIP-712 struct field. Loose: core accepts a field carrying extra keys. */
 const Eip712Field = z.looseObject({ name: z.string().min(1), type: z.string().min(1) });
 
@@ -164,6 +179,72 @@ export class SignController {
   }
 
   /**
+   * Raw secp256k1 signature over a caller-supplied 32-byte digest (EVM). No
+   * keccak, no EIP-191 prefix: the caller RLP-encodes and hashes the tx, we
+   * sign the digest, they broadcast. `recovery` is the yParity — build the
+   * tx-type `v` from it (yParity for typed txs, 35 + 2·chainId + recovery for
+   * legacy EIP-155).
+   */
+  @Post('digest')
+  @HttpCode(200)
+  async digest(
+    @CurrentSession() session: Session,
+    @Body() body: unknown,
+  ): Promise<{ address: string; r: string; s: string; recovery: number; signature: string }> {
+    const parsed = SignDigest.safeParse(body);
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { address, digest }', parsed.error, body),
+      );
+    }
+    const address = await this.resolve(session, parsed.data.address);
+    if (address.vm !== 'evm') {
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'digest signing is EVM (secp256k1) only');
+    }
+    const out = address.signDigest(parsed.data.digest);
+    return {
+      address: String(address.publicKey),
+      r: out.r,
+      s: out.s,
+      recovery: out.recovery,
+      signature: out.signature,
+    };
+  }
+
+  /**
+   * Raw ed25519 signature over caller-supplied bytes (SVM). Signs the exact
+   * bytes verbatim: the caller compiles the Solana message, we sign it, they
+   * attach the signature and broadcast. `message` is lowercase 0x-hex by
+   * default, or base64 with `encoding: "base64"`.
+   */
+  @Post('bytes')
+  @HttpCode(200)
+  async bytes(
+    @CurrentSession() session: Session,
+    @Body() body: unknown,
+  ): Promise<{ address: string; signature: string; signatureHex: string }> {
+    const parsed = SignBytes.safeParse(body);
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { address, message, encoding? }', parsed.error, body),
+      );
+    }
+    const message = decodeSignBytesMessage(parsed.data.message, parsed.data.encoding);
+    const address = await this.resolve(session, parsed.data.address);
+    if (address.vm !== 'svm') {
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'byte signing is SVM (ed25519) only');
+    }
+    const out = address.signBytes(message);
+    return {
+      address: String(address.publicKey),
+      signature: out.signature,
+      signatureHex: out.signatureHex,
+    };
+  }
+
+  /**
    * Find an address by public key within this session's workspace, unlocking
    * its account lazily. `filter` searches the whole workspace, so the owning
    * account is resolved from the hit and then unlocked through the registry —
@@ -184,5 +265,39 @@ export class SignController {
 
     await this.sessions.requireAccount(session, String(owner.slug));
     return found;
+  }
+}
+
+/**
+ * The exact bytes core signs. 0x-hex passes straight through; base64 is decoded
+ * to bytes. Both directions are strict: the "deadbeef is valid hex AND base64"
+ * ambiguity is why core refuses to guess, so the caller names the encoding and
+ * a lenient base64 round-trip that does not match is rejected rather than signed.
+ */
+function decodeSignBytesMessage(
+  message: string,
+  encoding: 'hex' | 'base64' | undefined,
+): Uint8Array | string {
+  if ((encoding ?? 'hex') === 'hex') {
+    if (!/^0x[0-9a-f]*$/.test(message) || message.length % 2 !== 0) {
+      throw new TeeError('TEE_INVALID_BODY', 'message must be lowercase 0x-hex of whole bytes');
+    }
+    assertSignBytesLength((message.length - 2) / 2);
+    return message;
+  }
+  const decoded = Buffer.from(message, 'base64');
+  if (decoded.toString('base64').replace(/=+$/, '') !== message.replace(/=+$/, '')) {
+    throw new TeeError('TEE_INVALID_BODY', 'message is not valid base64');
+  }
+  assertSignBytesLength(decoded.length);
+  return decoded;
+}
+
+function assertSignBytesLength(byteLength: number): void {
+  if (byteLength === 0) {
+    throw new TeeError('TEE_INVALID_BODY', 'message must be at least one byte');
+  }
+  if (byteLength > MAX_SIGN_BYTES) {
+    throw new TeeError('TEE_INVALID_BODY', `message exceeds the ${MAX_SIGN_BYTES}-byte limit`);
   }
 }
