@@ -8,7 +8,7 @@ import { AccountUnlockLimiter } from './account-unlock-limiter';
 import { unlockedFunctions, type InquiryFunction } from './functionality';
 
 /**
- * The two capability tiers a tenant can mint. Basic withholds fund movement
+ * The two capability tiers a tenant can mint. Basic withholds signing
  * (the sign scope); Unlimited grants the full set. Key export is additionally
  * gated on a live inquiry key today and is tier-gated to Unlimited in a later
  * wave. The tier is expressed as the lease's granted scopes, so it needs no

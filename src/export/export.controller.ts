@@ -31,8 +31,9 @@ type ExportTarget =
 /**
  * Export — the highest-consequence route in the service.
  *
- * A leaked signing token moves funds within policy and leaves a trace; a
- * leaked export hands over permanent, offline, irrevocable control. So it is
+ * A leaked signing token can sign what the key allows — a transaction its
+ * holder then broadcasts — and leaves a trace; a leaked export hands over
+ * permanent, offline, irrevocable control. So it is
  * sealed to the end user's own inquiry key and gated on that key being live:
  * a token with no unexpired inquiry key cannot export at all, and the blob it
  * would yield opens only for the holder of the matching private key — never the
