@@ -80,7 +80,8 @@ export interface Session {
   /** Needed by account creation; the unlocked core handle already retains it. */
   readonly password: string;
   readonly passwordDigest: Buffer;
-  readonly absoluteExpiresAt: number;
+  /** Fixed at open, except that a mint may advance it forward while a durable lease pins the handle resident. */
+  absoluteExpiresAt: number;
   readonly accountTtlSec: number;
   readonly leases: Map<string, TokenLease>;
   readonly mutex: AsyncMutex;
@@ -387,6 +388,17 @@ export class SessionRegistry implements OnApplicationShutdown {
           }
           this.assertPassword(session, password);
           this.assertLeaseCapacity(session);
+          // A durable ("stay-exposed") lease pins this handle resident until
+          // restart, so the session's original absolute deadline no longer caps
+          // its lifetime and must not veto a new lease. Once that deadline has
+          // passed, a fresh non-durable mint would otherwise fail token issuance
+          // ("no token lifetime remains"); advance the window so a pinned
+          // workspace keeps minting. Only past-deadline and only under a live
+          // pin — an unpinned session still expires exactly as before.
+          const nowMs = this.#now();
+          if (this.hasDurableLease(session) && nowMs >= session.absoluteExpiresAt) {
+            session.absoluteExpiresAt = nowMs + tenant.ttl.workspaceAbsoluteSec * 1000;
+          }
           this.touch(session, tenant.ttl.workspaceIdleSec);
           return this.addLease(session, scopes, binding);
         }

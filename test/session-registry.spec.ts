@@ -1498,3 +1498,57 @@ describe('SessionRegistry shutdown drain classification (R-02)', () => {
     open.mockRestore();
   });
 });
+
+describe('SessionRegistry durable-pin lease issuance', () => {
+  it('keeps minting on a durable-pinned session after its absolute deadline passes', async () => {
+    const handle = {
+      accounts: [],
+      lock: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+      close: jest.fn<Promise<void>, []>().mockResolvedValue(undefined),
+    } as unknown as Workspace;
+    const open = jest.spyOn(Workspace, 'open').mockResolvedValue(handle);
+    const draft = {
+      tenants: {
+        acme: {
+          walletTotal: 0,
+          workspaces: [{ slug: 'desk-a', createdAt: new Date(0).toISOString(), walletCount: 0 }],
+        },
+      },
+    };
+    const state = {
+      close: async () => undefined,
+      tenant: () => draft.tenants.acme,
+      mutate: async <T>(fn: (value: typeof draft) => T): Promise<T> => fn(draft),
+    } as unknown as ServiceStateService;
+    const registry = new SessionRegistry(
+      { dataRoot: '/tmp/session-registry-durable-pin-test' } as Paths,
+      state,
+      { process: 2, leasesPerWorkspace: 4 },
+      testStorage,
+    );
+    const tenant = tenantFixture();
+
+    // A durable ("stay-exposed") lease pins the session resident until restart.
+    const durable = await registry.create(tenant, 'desk-a', 'password', ['read'], { durable: true });
+    expect(durable.session.leases.size).toBe(1);
+
+    // Drive the pinned session past its original absolute deadline.
+    durable.session.absoluteExpiresAt = Date.now() - 1;
+
+    // A wrong password is still rejected, before the window is ever advanced.
+    await expect(
+      registry.create(tenant, 'desk-a', 'wrong-password', ['read']),
+    ).rejects.toMatchObject({ code: 'BAD_PASSWORD' });
+    expect(durable.session.absoluteExpiresAt).toBeLessThan(Date.now());
+
+    // The regression: a fresh non-durable mint used to throw TEE_SESSION_EXPIRED
+    // "no token lifetime remains". It now succeeds with a live token, and the
+    // pinned session's window has moved forward.
+    const fresh = await registry.create(tenant, 'desk-a', 'password', ['read']);
+    expect(fresh.lease.expiresAt).toBeGreaterThan(Date.now());
+    expect(fresh.session.absoluteExpiresAt).toBeGreaterThan(Date.now());
+
+    await registry.onApplicationShutdown();
+    open.mockRestore();
+  });
+});
