@@ -11,6 +11,7 @@ import { WativeError } from 'wative-core';
 import { ErrorMapService } from '../config/error-map.service';
 import { reviewedMessageOrUndefined } from './reviewed-message';
 import { TeeError } from './tee-error';
+import { ActivityLog } from '../observability/activity-log.service';
 
 interface ErrorBody {
   error: {
@@ -33,7 +34,10 @@ interface ErrorBody {
 export class ErrorFilter implements ExceptionFilter {
   private readonly logger = new Logger(ErrorFilter.name);
 
-  constructor(private readonly errors: ErrorMapService) {}
+  constructor(
+    private readonly errors: ErrorMapService,
+    private readonly activity?: ActivityLog,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -58,6 +62,23 @@ export class ErrorFilter implements ExceptionFilter {
       rendered = this.genericError(requestId);
     }
     const { status, body } = rendered;
+
+    // The single place that holds both the public code and the internal reason
+    // an error carries. Recording it here is what makes a 4xx (whose reason the
+    // body and the warn log both drop) diagnosable from the admin activity pull.
+    // Never let it break the boundary: the filter must always write a response.
+    if (this.activity) {
+      try {
+        this.activity.emit('error', {
+          requestId,
+          code: body.error.code,
+          status,
+          reason: readReason(exception),
+        });
+      } catch {
+        // A telemetry failure must not replace the caller's error response.
+      }
+    }
 
     // 5xx diagnostics stay in logs. A few caller-actionable responses use only
     // reviewed fixed public text; their real exception detail still stays here.
@@ -315,6 +336,17 @@ function httpCodeSlug(status: number): string {
       return 'payload_too_large';
     default:
       return status >= 500 ? 'internal_error' : 'request_failed';
+  }
+}
+
+/** The internal `reason` marker an error carries, when it is a safe short string. */
+function readReason(exception: unknown): string | undefined {
+  try {
+    if (!(exception instanceof WativeError) && !(exception instanceof TeeError)) return undefined;
+    const reason = (exception.details as { reason?: unknown } | undefined)?.reason;
+    return typeof reason === 'string' ? reason : undefined;
+  } catch {
+    return undefined;
   }
 }
 

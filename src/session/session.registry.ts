@@ -15,6 +15,7 @@ import { SESSION_CAPACITY, type SessionCapacity } from './session-capacity';
 import { RpcBoundaryService } from './rpc-boundary.service';
 import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 import { WalletTagsService } from './wallet-tags.service';
+import { ActivityLog } from '../observability/activity-log.service';
 import { damagedAccountSlugs } from './damaged-accounts';
 
 /** How a token lease is confined below the workspace: to an account, or to one wallet. */
@@ -161,6 +162,7 @@ export class SessionRegistry implements OnApplicationShutdown {
     @Optional() @Inject(ACCOUNT_CUSTODY_CLOCK) clock?: AccountCustodyClock,
     @Optional() @Inject(ACCOUNT_CUSTODY_SCHEDULER) scheduler?: AccountCustodyScheduler,
     @Optional() private readonly walletTags?: WalletTagsService,
+    @Optional() private readonly activity?: ActivityLog,
   ) {
     this.#now = clock ?? Date.now;
     this.#accountScheduler = scheduler ?? systemAccountCustodyScheduler;
@@ -457,6 +459,12 @@ export class SessionRegistry implements OnApplicationShutdown {
         this.#sessions.set(session.sid, session);
         const grant = this.addLease(session, scopes, binding);
         this.logger.log(`session opened: ${tenant.id}/${workspaceSlug} (${session.sid})`);
+        this.activity?.emit('session', {
+          event: 'opened',
+          tenant: tenant.id,
+          workspace: workspaceSlug,
+          sid: session.sid,
+        });
         return grant;
       } catch (err) {
         if (entry.session) {
@@ -955,6 +963,12 @@ export class SessionRegistry implements OnApplicationShutdown {
     });
     if (this.#workspaces.get(entry.key) === entry) this.#workspaces.delete(entry.key);
     this.logger.log(`session closed: ${session.tenantId}/${session.workspaceSlug} (${session.sid})`);
+    this.activity?.emit('session', {
+      event: 'closed',
+      tenant: session.tenantId,
+      workspace: session.workspaceSlug,
+      sid: session.sid,
+    });
   }
 
   private async closeProvisioningEntry(entry: WorkspaceEntry): Promise<void> {
@@ -1094,6 +1108,14 @@ export class SessionRegistry implements OnApplicationShutdown {
       reason,
       tenantId: victim.tenantId,
       workspaceSlug: victim.workspaceSlug,
+      sid: victim.sid,
+      keys: victim.leases.size,
+    });
+    this.activity?.emit('session', {
+      event: 'evicted',
+      reason,
+      tenant: victim.tenantId,
+      workspace: victim.workspaceSlug,
       sid: victim.sid,
       keys: victim.leases.size,
     });

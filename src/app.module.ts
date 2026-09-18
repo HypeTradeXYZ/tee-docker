@@ -70,12 +70,19 @@ import {
   WorkspaceCreationLimiter,
   workspaceCreationConfigFromEnv,
 } from './workspaces/workspace-creation-limiter';
+import { ActivityLog } from './observability/activity-log.service';
+import { ACTIVITY_CONFIG, activityConfigFromEnv } from './observability/activity-config';
+import { RequestActivityInterceptor } from './observability/request-activity.interceptor';
 
 @Module({
   imports: [ConfigModule],
   controllers: [HealthController, WorkspacesController, AuthController, ApiKeyController, WorkspaceController, AccountsController, SignController, NetworksController, ExportController, TransactionsController, BalancesController, AdminController],
   providers: [
     { provide: SERVER_KEY, useFactory: () => ServerKeyProvider.fromEnv() },
+    // Same env-timing reason as the limiters: parse inside the factory.
+    { provide: ACTIVITY_CONFIG, useFactory: () => activityConfigFromEnv() },
+    ActivityLog,
+    { provide: APP_INTERCEPTOR, useClass: RequestActivityInterceptor },
     ShutdownState,
     TenantGuard,
     WorkspaceGuard,
@@ -133,8 +140,9 @@ import {
     // error map rather than reaching for a singleton.
     {
       provide: APP_FILTER,
-      useFactory: (errors: ErrorMapService) => new ErrorFilter(errors),
-      inject: [ErrorMapService],
+      useFactory: (errors: ErrorMapService, activity: ActivityLog) =>
+        new ErrorFilter(errors, activity),
+      inject: [ErrorMapService, ActivityLog],
     },
   ],
 })
