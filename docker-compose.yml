@@ -21,12 +21,12 @@ services:
     init: true
     restart: unless-stopped
 
-    # Must outlast the longest in-flight operation. An RPC call may run for 15s
-    # (TEE_RPC_DEADLINE_MS, and the relay's own hard limit), while Docker's
-    # default stop grace is 10s — so a redeploy during a live RPC would SIGKILL
-    # the process mid-drain. SIGKILL cannot be caught, so the fatal-exit lock
-    # release does not cover it, and the state lock is left stranded for a
-    # human to clear. 30s leaves margin above the 15s ceiling.
+    # Must outlast the longest in-flight operation. The service signs and
+    # manages keys but never calls a chain RPC, so the longest drain is now a
+    # KDF unlock or a batch wallet derive/seed, while Docker's default stop
+    # grace is 10s — so a redeploy mid-operation would SIGKILL the process
+    # mid-drain. SIGKILL cannot be caught, so the fatal-exit lock release does
+    # not cover it, and the state lock is left stranded for a human to clear.
     stop_grace_period: 30s
 
     # Never raise this. Two instances against one state directory is the
@@ -82,8 +82,6 @@ services:
       - TEE_MINT_RATE_LIMIT=10
       - TEE_WORKSPACE_CREATE_RATE_LIMIT=10
       - TEE_WORKSPACE_RECREATE_COOLDOWN_SEC=60
-      - TEE_MAX_RPC_OPERATIONS_PER_TENANT=8
-      - TEE_RPC_DEADLINE_MS=15000
 
       # Wallet buffer mode. Bare name so it inherits from Dokploy's Environment
       # tab (like the secrets above); unset means 0 = derive-on-demand (rough

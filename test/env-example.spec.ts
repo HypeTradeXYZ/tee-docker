@@ -63,8 +63,6 @@ describe('.env.example completeness (L-08)', () => {
     const viaHelper = [
       'TEE_MAX_UNLOCKED_WORKSPACES',
       'TEE_MAX_TOKEN_LEASES_PER_WORKSPACE',
-      'TEE_RPC_DEADLINE_MS',
-      'TEE_MAX_RPC_OPERATIONS_PER_TENANT',
       'TEE_WORKSPACE_CREATE_RATE_LIMIT',
       'TEE_WORKSPACE_RECREATE_COOLDOWN_SEC',
     ];
