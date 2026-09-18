@@ -108,6 +108,31 @@ describe('wallet buffer mode (BUFFER_SIZE=4)', () => {
     }
     expect(handed.has(id)).toBe(false);
   });
+
+  it('seeds a derive-populated account so the buffer never re-issues bound wallets', async () => {
+    const { http, bearer } = ctx;
+    // A "legacy" account whose wallets were bound out of band via the derive
+    // path (no sys:allocated tag) — the migration hazard the seed step fixes.
+    const legacy = (
+      await http().post('/v1/accounts').set(bearer()).send({ displayName: 'Legacy', kind: 'HD' }).expect(201)
+    ).body.account.slug;
+    await http().post(`/v1/accounts/${legacy}/wallets`).set(bearer()).send({ count: 3 }).expect(201);
+    // Account create seeded wallet 0; derive added 1..3 → ids 0..3, all untagged.
+
+    const seeded = await http()
+      .post(`/v1/accounts/${legacy}/wallets/seed-allocated`).set(bearer()).send({ count: 4 }).expect(200);
+    expect(seeded.body).toEqual({ allocated: 4, total: 4 });
+
+    // A count beyond the account's wallet total is rejected, not clamped.
+    await http().post(`/v1/accounts/${legacy}/wallets/seed-allocated`).set(bearer()).send({ count: 99 }).expect(400);
+
+    // Every subsequent allocation is a fresh wallet (id >= 4), never a bound one.
+    const handed = new Set<number>();
+    for (let i = 0; i < 3; i += 1) {
+      handed.add((await http().post(`/v1/accounts/${legacy}/wallets/allocate`).set(bearer()).expect(201)).body.wallet.id);
+    }
+    for (const id of handed) expect(id).toBeGreaterThanOrEqual(4);
+  });
 });
 
 describe('rough mode (BUFFER_SIZE=0)', () => {

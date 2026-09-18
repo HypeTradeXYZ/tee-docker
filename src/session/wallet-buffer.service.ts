@@ -46,6 +46,38 @@ export class WalletBufferService {
     return wallet;
   }
 
+  /**
+   * Migration affordance: mark this HD account's `count` lowest-id wallets as
+   * allocated, so an account whose wallets are already bound out of band (the
+   * derive path's ordinals) can move to buffer mode without allocate re-issuing
+   * a bound wallet. Idempotent. Runs inside the request mutex.
+   */
+  async seedAllocated(
+    session: Session,
+    slug: string,
+    count: number,
+  ): Promise<{ allocated: number; total: number }> {
+    const account = await this.sessions.requireAccount(session, slug);
+    if (account.organizationType !== 'HD') {
+      throw new TeeError('TEE_UNSUPPORTED_FOR_KIND', 'only an HD account has wallets to seed');
+    }
+    const wallets = walletsOf(account).sort((a, b) => a.id - b.id);
+    if (count > wallets.length) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        `count ${count} exceeds the ${wallets.length} wallet(s) in this account`,
+      );
+    }
+    // Sequential: each tag write is a complete journaled mutation on the handle.
+    for (const wallet of wallets.slice(0, count)) {
+      await this.walletTags.setReservedTag(session, wallet, ALLOCATED_TAG);
+    }
+    return {
+      allocated: walletsOf(account).filter((w) => w.tags.includes(ALLOCATED_TAG)).length,
+      total: wallets.length,
+    };
+  }
+
   private firstUnallocated(account: Account): Wallet | undefined {
     return walletsOf(account).find((wallet) => !wallet.tags.includes(ALLOCATED_TAG));
   }

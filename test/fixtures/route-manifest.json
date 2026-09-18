@@ -26,6 +26,7 @@
   "POST /v1/accounts/:slug/wallets/:id/export",
   "POST /v1/accounts/:slug/wallets/allocate",
   "POST /v1/accounts/:slug/wallets/import",
+  "POST /v1/accounts/:slug/wallets/seed-allocated",
   "POST /v1/admin/tenants/:id/limits",
   "POST /v1/auth/api-key",
   "POST /v1/auth/token",

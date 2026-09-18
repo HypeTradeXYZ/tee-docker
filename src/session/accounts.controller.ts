@@ -42,6 +42,7 @@ const CreateAccount = z.object({
 }).strict();
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) }).strict();
+const SeedAllocated = z.object({ count: z.number().int().nonnegative().max(100_000) }).strict();
 const ImportKey = z.object({
   privateKey: z.string().min(1),
   vm: z.enum(['evm', 'svm']).optional(),
@@ -134,6 +135,29 @@ export class AccountsController {
   ): Promise<{ wallet: WalletView }> {
     const wallet = await this.buffer.allocate(session, tenant, assertValidAccountSlug(slug));
     return { wallet: walletView(wallet) };
+  }
+
+  /**
+   * Migration prep for buffer mode: mark the first `count` wallets of this HD
+   * account as already allocated, so a pre-existing account whose wallets are
+   * bound out of band is not re-issued by the buffer. Idempotent.
+   */
+  @Post(':slug/wallets/seed-allocated')
+  @HttpCode(200)
+  @RequireScopes('write')
+  async seedAllocated(
+    @CurrentSession() session: Session,
+    @Param('slug') slug: string,
+    @Body() body: unknown,
+  ): Promise<{ allocated: number; total: number }> {
+    const parsed = SeedAllocated.safeParse(body);
+    if (!parsed.success) {
+      throw new TeeError(
+        'TEE_INVALID_BODY',
+        invalidBodyMessage('body must be { count }', parsed.error, body),
+      );
+    }
+    return this.buffer.seedAllocated(session, assertValidAccountSlug(slug), parsed.data.count);
   }
 
   @Post(':slug/wallets/import')
