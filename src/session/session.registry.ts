@@ -12,7 +12,6 @@ import {
 import { workspacePath } from '../workspaces/workspace-paths';
 import { AsyncMutex, KeyedMutex } from './async-mutex';
 import { SESSION_CAPACITY, type SessionCapacity } from './session-capacity';
-import { RpcBoundaryService } from './rpc-boundary.service';
 import type { AccountUnlockFailure, AccountUnlockLimiter } from '../auth/account-unlock-limiter';
 import { WalletTagsService } from './wallet-tags.service';
 import { ActivityLog } from '../observability/activity-log.service';
@@ -160,7 +159,6 @@ export class SessionRegistry implements OnApplicationShutdown {
     private readonly state: ServiceStateService,
     @Inject(SESSION_CAPACITY) private readonly capacity: SessionCapacity,
     private readonly storage: WorkspaceStorageService,
-    @Optional() private readonly rpcBoundary?: RpcBoundaryService,
     @Optional() @Inject(ACCOUNT_CUSTODY_CLOCK) clock?: AccountCustodyClock,
     @Optional() @Inject(ACCOUNT_CUSTODY_SCHEDULER) scheduler?: AccountCustodyScheduler,
     @Optional() private readonly walletTags?: WalletTagsService,
@@ -453,16 +451,6 @@ export class SessionRegistry implements OnApplicationShutdown {
         });
         if (!session) throw new Error('workspace storage opener returned without a handle');
         if (this.#shuttingDown) throw expired('application is shutting down');
-
-        // Never publish a core handle whose Networks can reach tenant URLs
-        // directly. Existing workspaces are migrated before their first use;
-        // new workspaces are already hardened by the provisioning path.
-        await this.rpcBoundary?.hardenWorkspace(
-          session.handle,
-          tenant.id,
-          workspaceSlug,
-          tenant.rpc,
-        );
 
         // A prior tag replacement may have stopped between core's individual
         // account writes. Restore its durable old-value snapshot before this
@@ -993,9 +981,6 @@ export class SessionRegistry implements OnApplicationShutdown {
     bookkeep('clearAccountTimer', () => this.clearAccountTimer(session));
     bookkeep('sessions.delete', () => { this.#sessions.delete(session.sid); });
     bookkeep('leases.clear', () => session.leases.clear());
-    bookkeep('revokeWorkspace', () => {
-      this.rpcBoundary?.revokeWorkspace(session.tenantId, session.workspaceSlug);
-    });
     await session.mutex.runExclusive(async () => {
       try {
         // Evicting for good: close() zeroizes secrets (it locks first) AND releases

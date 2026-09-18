@@ -65,7 +65,6 @@ describe('fixed account unlock episodes', () => {
       { close: async () => undefined } as unknown as ServiceStateService,
       { process: 2, leasesPerWorkspace: 2 },
       {} as WorkspaceStorageService,
-      undefined,
       () => now,
     );
   });
@@ -346,7 +345,6 @@ describe('account expiry scheduling', () => {
       state,
       { process: 1, leasesPerWorkspace: 2 },
       storage,
-      undefined,
       () => now,
       scheduler,
     );
@@ -442,7 +440,6 @@ describe('account expiry scheduling', () => {
           return handle;
         },
       } as unknown as WorkspaceStorageService,
-      undefined,
       () => now,
     );
     const { session } = await registry.create(tenant, 'desk-a', 'password', ['read']);

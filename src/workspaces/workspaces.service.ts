@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Network, PasswordPolicy, Workspace, WativeError } from 'wative-core';
+import { PasswordPolicy, Workspace, WativeError } from 'wative-core';
 import { TeeError } from '../common/tee-error';
 import { PATHS, type Paths } from '../config/paths';
 import type { Tenant, WorkspaceState } from '../config/schemas';
@@ -7,7 +7,6 @@ import { ServiceStateService } from '../config/service-state.service';
 import { SessionRegistry } from '../session/session.registry';
 import { WorkspaceStorageService } from './workspace-storage.service';
 import { workspacePath } from './workspace-paths';
-import { RpcBoundaryService } from '../session/rpc-boundary.service';
 import { WorkspaceCreationLimiter } from './workspace-creation-limiter';
 
 const WORKSPACE_PASSWORD_POLICY = new PasswordPolicy();
@@ -21,7 +20,6 @@ export class WorkspacesService {
     private readonly state: ServiceStateService,
     private readonly sessions: SessionRegistry,
     private readonly storage: WorkspaceStorageService,
-    private readonly rpcBoundary: RpcBoundaryService,
     private readonly creationLimiter: WorkspaceCreationLimiter,
   ) {}
 
@@ -94,13 +92,10 @@ export class WorkspacesService {
 
       try {
         // Workspace creation is the sole path allowed to initialize storage.
+        // tee-docker signs but never relays chain RPC, so a workspace's network
+        // registry keeps its built-in endpoints untouched and is never called.
         const ws = await Workspace.open({ path, password });
         retainHandle(ws);
-        // Seal the tenant's RPC endpoints and rebind built-ins to this process's
-        // relay, both offline. Endpoints are validated at boot and re-checked on
-        // every request, so creation performs no network call.
-        await this.seedRpc(ws, tenant, slug);
-        await this.rpcBoundary.hardenWorkspace(ws, tenant.id, slug, tenant.rpc);
       } catch (err) {
         // Roll the reservation back, or a failed create permanently consumes a
         // quota slot for a workspace that does not exist.
@@ -116,32 +111,11 @@ export class WorkspacesService {
             );
           });
         throw err;
-      } finally {
-        // Provisioning never publishes an unlocked session, so its temporary
-        // relay capabilities must not outlive the create-and-lock operation.
-        this.rpcBoundary.revokeWorkspace(tenant.id, slug);
       }
 
       this.logger.log(`workspace created: ${tenant.id}/${slug}`);
       return reserved;
     });
-  }
-
-  /** Seal configured endpoints into the registry offline; an unknown slug is skipped. */
-  private async seedRpc(ws: Workspace, tenant: Tenant, workspaceSlug: string): Promise<void> {
-    for (const [slug, rpcUrl] of Object.entries(tenant.rpc)) {
-      const network = ws.networks.bySlug(slug as never);
-      if (!network) {
-        this.logger.warn(`tenant ${tenant.id} configured RPC for unknown network "${slug}"`);
-        continue;
-      }
-      await ws.networks.update(
-        new Network({
-          ...network,
-          rpcUrl: this.rpcBoundary.relayUrl(rpcUrl, tenant.id, workspaceSlug, 'tenant'),
-        }),
-      );
-    }
   }
 
   async remove(tenant: Tenant, slug: string, force: boolean): Promise<void> {

@@ -44,18 +44,6 @@ import {
 import { WorkspacesController } from './workspaces/workspaces.controller';
 import { WorkspacesService } from './workspaces/workspaces.service';
 import { WorkspaceStorageService } from './workspaces/workspace-storage.service';
-import {
-  RPC_DNS_RESOLVER,
-  RPC_HTTPS_REQUESTER,
-  RpcBoundaryService,
-  systemRpcDnsResolver,
-} from './session/rpc-boundary.service';
-import { request as httpsRequest } from 'node:https';
-import {
-  RPC_OPERATION_CONFIG,
-  RpcOperationService,
-  rpcOperationConfigFromEnv,
-} from './session/rpc-operation.service';
 import { AdminController } from './admin/admin.controller';
 import { DiagnosticsService } from './admin/diagnostics.service';
 import { AdminService } from './admin/admin.service';
@@ -129,11 +117,6 @@ import { RequestActivityInterceptor } from './observability/request-activity.int
     { provide: WORKSPACE_CREATION_CONFIG, useFactory: workspaceCreationConfigFromEnv },
     WorkspaceCreationLimiter,
     WorkspaceStorageService,
-    { provide: RPC_DNS_RESOLVER, useValue: systemRpcDnsResolver },
-    { provide: RPC_HTTPS_REQUESTER, useValue: httpsRequest },
-    RpcBoundaryService,
-    { provide: RPC_OPERATION_CONFIG, useFactory: rpcOperationConfigFromEnv },
-    RpcOperationService,
     { provide: KDF_CHECK_CONFIG, useFactory: kdfCheckConfigFromEnv },
     { provide: KDF_PROBE_RUNNER, useValue: systemKdfProbeRunner },
     KdfCheckService,

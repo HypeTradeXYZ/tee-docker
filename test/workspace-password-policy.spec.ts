@@ -31,7 +31,6 @@ describe('workspace password policy', () => {
       { provisionWorkspace } as never,
       {} as never,
       {} as never,
-      {} as never,
     );
     await expect(service.create(DEFAULT_TENANT as never, 'desk-a', 'weak'))
       .rejects.toMatchObject({ code: 'WEAK_PASSWORD' });
@@ -51,7 +50,6 @@ describe('workspace password policy', () => {
       _slug: string,
       operation: (retain: (handle: Workspace) => void) => Promise<unknown>,
     ) => operation(() => undefined));
-    const rpcBoundary = { revokeWorkspace: jest.fn() };
     const admit = jest.fn(() => () => undefined);
     const stop = new Error('stop after reservation');
     const open = jest.spyOn(Workspace, 'open').mockRejectedValueOnce(stop);
@@ -60,7 +58,6 @@ describe('workspace password policy', () => {
       state,
       { provisionWorkspace } as never,
       {} as never,
-      rpcBoundary as never,
       { now: () => 0, admit } as never,
     );
     const tenant = {

@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { readdirSync, readFileSync } from 'node:fs';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
-import { RpcBoundaryService, type RpcBoundaryDiagnostics } from '../session/rpc-boundary.service';
 import { SessionRegistry, type SessionRegistryDiagnostics } from '../session/session.registry';
 import { ActivityLog, type ActivityStats } from '../observability/activity-log.service';
 import { BUFFER_CONFIG, type BufferConfig } from '../session/buffer-config';
@@ -23,7 +22,6 @@ export interface DiagnosticsSnapshot {
     readonly eventLoopLagMaxMs: number;
   };
   readonly sessions: SessionRegistryDiagnostics;
-  readonly rpc: RpcBoundaryDiagnostics;
   readonly activity: ActivityStats;
   readonly buffer: BufferSnapshot;
 }
@@ -51,7 +49,6 @@ export class DiagnosticsService {
 
   constructor(
     private readonly sessions: SessionRegistry,
-    private readonly rpcBoundary: RpcBoundaryService,
     private readonly activity: ActivityLog,
     @Inject(BUFFER_CONFIG) private readonly buffer: BufferConfig,
   ) {
@@ -75,7 +72,6 @@ export class DiagnosticsService {
         eventLoopLagMaxMs: msFromNanos(this.loop.max),
       },
       sessions: this.sessions.diagnostics(),
-      rpc: this.rpcBoundary.diagnostics(),
       activity: this.activity.stats(),
       buffer: {
         enabled: this.buffer.enabled,

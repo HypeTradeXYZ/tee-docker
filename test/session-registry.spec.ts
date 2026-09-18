@@ -86,7 +86,6 @@ describe('SessionRegistry close failure', () => {
       storage,
       undefined,
       undefined,
-      undefined,
       walletTags,
     );
 

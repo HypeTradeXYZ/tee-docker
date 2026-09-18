@@ -5,12 +5,6 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../../src/app.module';
 import { hashApiSecret } from '../../src/auth/secret';
-import {
-  RPC_DNS_RESOLVER,
-  RPC_HTTPS_REQUESTER,
-  type RpcDnsResolver,
-  type RpcHttpsRequester,
-} from '../../src/session/rpc-boundary.service';
 import { ACCOUNT_UNLOCK_CLOCK, type AccountUnlockClock } from '../../src/auth/account-unlock-limiter';
 import {
   ACCOUNT_CUSTODY_CLOCK,
@@ -62,8 +56,6 @@ export interface BootOptions {
   /** Extra environment applied before the module is built. */
   readonly env?: Readonly<Record<string, string>>;
   /** Deterministic H-01 resolver/request transport overrides. */
-  readonly rpcDnsResolver?: RpcDnsResolver;
-  readonly rpcHttpsRequester?: RpcHttpsRequester;
   /** Deterministic H-02 backoff clock override. */
   readonly accountUnlockClock?: AccountUnlockClock;
   /** Deterministic M-10 creation-window and recreation-cooldown clock. */
@@ -130,12 +122,6 @@ export async function boot(options: BootOptions = {}): Promise<Harness> {
   let app: INestApplication;
   try {
     let builder = Test.createTestingModule({ imports: [AppModule] });
-    if (options.rpcDnsResolver) {
-      builder = builder.overrideProvider(RPC_DNS_RESOLVER).useValue(options.rpcDnsResolver);
-    }
-    if (options.rpcHttpsRequester) {
-      builder = builder.overrideProvider(RPC_HTTPS_REQUESTER).useValue(options.rpcHttpsRequester);
-    }
     if (options.accountUnlockClock) {
       builder = builder.overrideProvider(ACCOUNT_UNLOCK_CLOCK).useValue(options.accountUnlockClock);
     }

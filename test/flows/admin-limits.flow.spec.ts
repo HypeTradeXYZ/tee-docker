@@ -58,7 +58,6 @@ describe('admin limits flow', () => {
         unlockedWorkspacesCap: expect.any(Number),
         durableLeases: expect.any(Number),
       }),
-      rpc: expect.objectContaining({ activeRequests: expect.any(Number) }),
     });
     expect(res.body.uptimeSec).toBeGreaterThanOrEqual(0);
   });

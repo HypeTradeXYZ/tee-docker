@@ -1,7 +1,6 @@
 import type { Paths } from '../src/config/paths';
 import type { ServiceState, Tenant } from '../src/config/schemas';
 import type { ServiceStateService } from '../src/config/service-state.service';
-import type { RpcBoundaryService } from '../src/session/rpc-boundary.service';
 import type { SessionRegistry } from '../src/session/session.registry';
 import type { WorkspaceStorageService } from '../src/workspaces/workspace-storage.service';
 import { WorkspaceCreationLimiter } from '../src/workspaces/workspace-creation-limiter';
@@ -46,7 +45,6 @@ it('removes a deleted workspace tag-recovery record with its ledger row', async 
     state,
     sessions,
     storage,
-    {} as RpcBoundaryService,
     limiter,
   );
   const tenant = {
