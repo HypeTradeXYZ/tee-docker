@@ -1122,7 +1122,7 @@ describe('SessionRegistry.lockAllHandlesBestEffort (L-12)', () => {
     // retained rather than inviting a successor onto the same directory.
     expect(failures.map(String).join()).toContain('core lock failure');
     // Released unconditionally: a conditional release made a stranded lock
-    // deterministic on a busy service. See AUDIT-FINDINGS R-05.
+    // deterministic on a busy service.
     expect(stateClose).toHaveBeenCalledTimes(1);
   });
 

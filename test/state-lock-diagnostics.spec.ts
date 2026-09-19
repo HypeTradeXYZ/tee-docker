@@ -6,7 +6,7 @@ import type { Paths } from '../src/config/paths';
 
 /**
  * A crash-stale lock is only ever removed by a human, so the refusal has to
- * tell them which file and why. See AUDIT-FINDINGS R-05.
+ * tell them which file and why.
  */
 describe('state lock refusal is actionable (R-05)', () => {
   const dirs: string[] = [];

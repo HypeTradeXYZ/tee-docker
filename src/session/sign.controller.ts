@@ -40,8 +40,8 @@ const Eip712Field = z.looseObject({ name: z.string().min(1), type: z.string().mi
 
 /**
  * The eth_signTypedData_v4 envelope, pinned only where core already refuses the
- * same payload. Every shape rejected here is one core rejects too, measured
- * against 2.4.4 — this names those 400s, it does not add any.
+ * same payload. Every shape rejected here is one core rejects too — this names
+ * those 400s, it does not add any.
  *
  * `domain` is checked for presence but never for shape: core deliberately signs
  * a domain given as an array, a number or a boolean, because every other

@@ -272,7 +272,6 @@ domain named a different chain than the one being signed for; see the signing no
 - Use the least-permissive token scopes your integration needs.
 - Revoke a token with `DELETE /v1/auth/token` when a workflow is finished.
 - Use `?force=true` when deleting an in-use workspace only if revoking its active tokens is intended.
-- Keep network endpoint credentials and export setup with the service operator, not in client code.
 - Treat the super-admin key as operator-only material, never shipped to a client. It can raise any
   tenant's limits on a running service, so it belongs with the service's other secrets.
 

@@ -11,7 +11,7 @@ const ROOT = join(__dirname, '../..');
  * The lock is taken by ConfigModule's factory DURING NestFactory.create, so a
  * failure inside create leaves no INestApplication to close. Nothing exercised
  * src/main.ts before this, which is how a fix contradicting its own commit
- * message shipped green. See AUDIT-FINDINGS R-05.
+ * message shipped green.
  */
 describe('failed boot releases the state lock (R-05)', () => {
   const dirs: string[] = [];

@@ -138,8 +138,7 @@ export class WorkspaceController {
   }
 
   /**
-   * Resolve an account, unlocking it lazily. Stands in for the domain routes
-   * still to come — it is the shape every one of them will use.
+   * Resolve an account, unlocking it lazily.
    */
   @Get('accounts/:slug')
   @RequireScopes('read')

@@ -14,8 +14,7 @@
 //   node scripts/check-config.mjs path/to/tenants.json
 //
 // Exit 0 means the schema accepts it. It does NOT prove the service will boot:
-// RPC endpoints are resolved over DNS at startup and the KDF backend is probed
-// there too, neither of which happens here.
+// the KDF backend is probed at startup, which does not happen here.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

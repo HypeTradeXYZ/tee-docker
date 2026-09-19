@@ -201,7 +201,7 @@ export class SessionRegistry implements OnApplicationShutdown {
         failures.push(err);
       }
     }
-    // Ordering only; phase 2 reports custody failures. See AUDIT-FINDINGS R-02.
+    // Ordering only; phase 2 reports custody failures.
     while (this.#lifecycleJobs.size > 0) {
       await Promise.allSettled([...this.#lifecycleJobs]);
     }
