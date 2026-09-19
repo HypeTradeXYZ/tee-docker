@@ -31,9 +31,10 @@ const MetricsQuery = z
   .object({ limit: z.coerce.number().int().positive().max(20_000).optional() })
   .strict();
 
-// Bounded by the same rule LimitsSchema holds these fields to, so a value the
-// endpoint accepts is always a value the operator config can hold.
-const Limit = z.number().int().nonnegative();
+// Held to the same safe-integer bound the persisted LimitOverridesSchema
+// enforces, so a value the endpoint accepts is one the state row can store — an
+// out-of-range value is a clean 400 here, not a 500 at persist time.
+const Limit = z.number().int().nonnegative().safe();
 
 const LiftBody = z
   .object({

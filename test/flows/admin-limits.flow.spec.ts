@@ -212,6 +212,7 @@ describe('admin limits flow', () => {
     ['an unknown field', { maxAccounts: 5 }],
     ['a negative limit', { maxWallets: -1 }],
     ['a fractional limit', { maxWallets: 1.5 }],
+    ['a non-safe integer limit', { maxWallets: 9_007_199_254_740_992 }],
     ['maxUnlockedWorkspaces, which this tier may not set', { maxUnlockedWorkspaces: 99 }],
   ])('refuses %s', async (_label, body) => {
     const res = await http

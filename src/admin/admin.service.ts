@@ -44,9 +44,11 @@ export class AdminService {
       throw new TeeError('TEE_TENANT_NOT_FOUND', `no tenant "${tenantId}"`);
     }
 
-    // The in-memory limit already reflects any override replayed at boot, so it
-    // is the value a raise-only request is measured against and the value being
-    // replaced.
+    // The in-memory limit reflects base + any override replayed at boot, and is
+    // what a raise-only request is measured against. Two concurrent lifts both
+    // measure this at-request value (read before any commit), so both pass as
+    // raises; the max-merge in the mutation below is what keeps a later commit
+    // from regressing an earlier, higher one.
     const effective = {
       maxWorkspaces: tenant.limits.maxWorkspaces,
       maxWallets: tenant.limits.maxWallets,
@@ -75,26 +77,33 @@ export class AdminService {
       return { tenant: tenantId, limits: effective, changed };
     }
 
-    // Persist the raise as an override on the tenant's state row. Store the full
-    // effective pair, not just the changed field, so the row is a complete
-    // record of the raised ceilings.
+    // Merge each raise into the override with a max, inside the serialized state
+    // mutation — so a concurrent lift that committed a HIGHER ceiling first is
+    // never overwritten (regressed) by this one's blind write.
     await this.state.mutate((draft) => {
       const row = Object.hasOwn(draft.tenants, tenantId)
         ? draft.tenants[tenantId]
         : (draft.tenants[tenantId] = { walletTotal: 0, workspaces: [] });
       const overrides: LimitOverrides = { ...(row.limitOverrides ?? {}) };
-      for (const field of changed) overrides[field] = next[field];
+      for (const field of changed) {
+        overrides[field] = Math.max(next[field], overrides[field] ?? next[field]);
+      }
       row.limitOverrides = overrides;
     });
 
-    // Only after the durable commit: publish the raised limit to the running
-    // process so every enforcement site and /quota see it without a restart.
-    this.tenants.applyLimits(tenantId, next);
+    // Publish to the running process, never lowering a ceiling a concurrent lift
+    // may already have applied: re-read the live value and take the max.
+    const running = this.tenants.byId(tenantId)?.limits ?? effective;
+    const applied = {
+      maxWorkspaces: Math.max(next.maxWorkspaces, running.maxWorkspaces),
+      maxWallets: Math.max(next.maxWallets, running.maxWallets),
+    };
+    this.tenants.applyLimits(tenantId, applied);
 
     this.logger.warn(
       `super-admin raised ${changed.join(', ')} for tenant=${tenantId} `
-        + `to ${changed.map((f) => `${f}=${next[f]}`).join(', ')}`,
+        + `to ${changed.map((f) => `${f}=${applied[f]}`).join(', ')}`,
     );
-    return { tenant: tenantId, limits: next, changed };
+    return { tenant: tenantId, limits: applied, changed };
   }
 }
