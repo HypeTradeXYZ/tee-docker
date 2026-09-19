@@ -679,6 +679,26 @@ export class SessionRegistry implements OnApplicationShutdown {
   }
 
   /**
+   * Drop expired leases and close the workspace if none remain — the same
+   * in-lock re-check release() does, so a concurrent mint that adds a lease
+   * after the sweep's count read never has its just-issued lease torn down.
+   * Returns true when the session was closed (or already gone).
+   */
+  private async reapExpiredLeases(session: Session, now: number): Promise<boolean> {
+    const key = workspaceKey(session.tenantId, session.workspaceSlug);
+    return this.#lifecycle.runExclusive(key, async () => {
+      if (this.#sessions.get(session.sid) !== session) return true;
+      for (const [jti, lease] of session.leases) {
+        if (lease.expiresAt <= now) session.leases.delete(jti);
+      }
+      if (session.leases.size > 0) return false;
+      const entry = this.#workspaces.get(key);
+      if (entry?.session === session) await this.closeEntry(entry);
+      return true;
+    });
+  }
+
+  /**
    * Run core work on a session in the background — off the request path — under
    * the same mutex and revocation guards as a request. Never awaited by the
    * caller and never throws to it: a closing or expired session is an expected
@@ -1357,13 +1377,7 @@ export class SessionRegistry implements OnApplicationShutdown {
           continue;
         }
 
-        for (const [jti, lease] of session.leases) {
-          if (lease.expiresAt <= now) session.leases.delete(jti);
-        }
-        if (session.leases.size === 0) {
-          await this.destroy(session.sid);
-          continue;
-        }
+        if (await this.reapExpiredLeases(session, now)) continue;
 
         await session.mutex.runExclusive(() => {
           if (this.#sessions.get(session.sid) !== session || session.unusable) return;
