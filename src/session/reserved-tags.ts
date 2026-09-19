@@ -2,9 +2,10 @@
  * Reserved wallet-tag namespace.
  *
  * Tags under this prefix are internal state (buffer allocation, ...). They are
- * managed only by the service: the caller-facing tags endpoint cannot set or
- * clear them, and they are filtered out of every wallet view. Core accepts the
- * `sys:` form verbatim, so no normalization surprise hides one.
+ * managed only by the service: the caller-facing tags endpoint strips them from
+ * a request after core normalization, and they are filtered out of every wallet
+ * view, so a caller can neither set them (even via a whitespace or Unicode
+ * variant that normalizes into the namespace) nor read them.
  */
 export const RESERVED_TAG_PREFIX = 'sys:';
 

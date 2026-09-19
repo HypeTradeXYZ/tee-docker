@@ -272,6 +272,20 @@ describe('reserved tag protection', () => {
     expect(f.tags()).toEqual(['vip']);
   });
 
+  it('strips a reserved tag smuggled past the filter with surrounding whitespace', async () => {
+    const f = fixture(['old-a']);
+    // Leading whitespace hides the sys: prefix from the reserved filter; core then
+    // trims it back into the namespace, so the strip must run after normalization.
+    await f.service.replace(f.session, f.wallet, [
+      'vip',
+      ' sys:allocated',
+      '  sys:allocated  ',
+      ' sys:allocated',
+    ]);
+    expect(f.tags()).toEqual(['vip']);
+    expect(f.tags().some((tag) => tag.startsWith('sys:'))).toBe(false);
+  });
+
   it('preserves an existing reserved tag across a caller replace', async () => {
     const f = fixture(['sys:allocated', 'old-a']);
     await f.service.replace(f.session, f.wallet, ['vip']);

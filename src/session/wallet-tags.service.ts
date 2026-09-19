@@ -17,13 +17,14 @@ export class WalletTagsService {
   constructor(private readonly state: ServiceStateService) {}
 
   /**
-   * The caller-facing tag replacement. Reserved (sys:*) tags are internal
-   * state: they are stripped from the caller's request and the wallet's
-   * existing ones are carried across unchanged, so a caller can neither set nor
-   * clear them through this path.
+   * The caller-facing tag replacement. Reserved (sys:*) tags are internal state:
+   * they are stripped from the caller's request AFTER core normalization — so no
+   * whitespace or Unicode variant can normalize into the namespace past the
+   * filter — and the wallet's existing ones are carried across unchanged, so a
+   * caller can neither set nor clear them through this path.
    */
   async replace(session: Session, wallet: Wallet, requested: readonly string[]): Promise<void> {
-    const callerTags = await normalizeWalletTags(requested.filter((tag) => !isReservedTag(tag)));
+    const callerTags = (await normalizeWalletTags(requested)).filter((tag) => !isReservedTag(tag));
     await this.writeTags(session, wallet, [...callerTags, ...reservedTags(wallet.tags)]);
   }
 
