@@ -196,6 +196,21 @@ describe('durable wallet tag replacement', () => {
     expect(f.data.tenants.acme.walletTagRecoveries?.['desk-a']).toBeDefined();
   });
 
+  it('quarantines an unrecoverable journal so the workspace stays openable', async () => {
+    const f = fixture(['x']);
+    f.data.tenants.acme.walletTagRecoveries = {
+      'desk-a': { accountSlug: 'gone', walletId: 3, oldTags: ['old-a', 'old-b'] },
+    };
+    // The journaled account is damaged/absent from the reopened handle. Recovery
+    // must discard the journal and return, not hard-throw (which would brick every
+    // reopen and leave the workspace permanently un-openable).
+    (f.session.handle.accounts as unknown as { bySlug: () => undefined }).bySlug = () => undefined;
+
+    await expect(f.service.recoverWorkspace(f.session)).resolves.toBeUndefined();
+    expect(f.data.tenants.acme.walletTagRecoveries).toBeUndefined();
+    expect(f.wallet.clearTags).not.toHaveBeenCalled();
+  });
+
   it('restores an interrupted real 2.4.4 account before a reopened handle is usable', async () => {
     const root = mkdtempSync(join(tmpdir(), 'wallet-tag-recovery-'));
     const password = 'Workspace-Passw0rd!x';

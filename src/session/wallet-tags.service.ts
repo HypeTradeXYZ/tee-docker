@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Wallet, type Account } from 'wative-core';
 import { ServiceStateService } from '../config/service-state.service';
 import type { WalletTagRecovery } from '../config/schemas';
@@ -14,6 +14,8 @@ import { isReservedTag, reservedTags } from './reserved-tags';
  */
 @Injectable()
 export class WalletTagsService {
+  private readonly logger = new Logger(WalletTagsService.name);
+
   constructor(private readonly state: ServiceStateService) {}
 
   /**
@@ -93,7 +95,16 @@ export class WalletTagsService {
     const account = session.handle.accounts.bySlug(recovery.accountSlug as never);
     const wallet = account?.wallets.byId(recovery.walletId);
     if (!account || !wallet) {
-      throw new Error('wallet tag recovery target is missing');
+      // Target gone — a damaged/undecryptable account is omitted from the
+      // handle, so its tags can never be restored. Quarantine the unrecoverable
+      // journal instead of hard-failing every reopen (which would leave the
+      // workspace permanently un-openable), matching syncWalletCount's tolerance.
+      this.logger.warn(
+        `discarding unrecoverable wallet-tag journal for ${session.workspaceSlug}: `
+          + `${recovery.accountSlug}#${recovery.walletId} is missing`,
+      );
+      await this.clearRecovery(session);
+      return;
     }
 
     await replaceAndConfirm(wallet, recovery.oldTags);
