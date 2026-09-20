@@ -13,6 +13,7 @@
     "PERMISSION_DENIED": { "status": 403, "code": "permission_denied" },
     "DISK_FULL": { "status": 507, "code": "disk_full", "exposeMessage": true, "publicMessage": "storage capacity is unavailable" },
     "PARAMETER_ERROR": { "status": 400, "code": "invalid_parameter" },
+    "IRREGULAR_DESTINATION": { "status": 422, "code": "irregular_destination" },
     "DECRYPT_FAILED": { "status": 500, "code": "decrypt_failed" },
     "ENCRYPT_FAILED": { "status": 500, "code": "encrypt_failed" },
     "ALGORITHM_IRREVERSIBLE": { "status": 500, "code": "algorithm_irreversible" },

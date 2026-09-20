@@ -1,7 +1,7 @@
 import type { WativeErrorCode } from 'wative-core';
 
 /**
- * Reviewed against wative-core 2.5.2. `satisfies` rejects invented codes and
+ * Reviewed against wative-core 2.5.3. `satisfies` rejects invented codes and
  * the exhaustiveness assertion below makes typecheck fail when core adds one.
  */
 export const WATIVE_ERROR_CODES = [
@@ -15,6 +15,7 @@ export const WATIVE_ERROR_CODES = [
   'PERMISSION_DENIED',
   'DISK_FULL',
   'PARAMETER_ERROR',
+  'IRREGULAR_DESTINATION',
   'DECRYPT_FAILED',
   'ENCRYPT_FAILED',
   'ALGORITHM_IRREVERSIBLE',

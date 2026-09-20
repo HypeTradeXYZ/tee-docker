@@ -27,8 +27,8 @@ importers:
         specifier: ^7.8.1
         version: 7.8.2
       wative-core:
-        specifier: 2.5.2
-        version: 2.5.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
+        specifier: 2.5.3
+        version: 2.5.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       zod:
         specifier: ^4.1.5
         version: 4.4.3
@@ -3491,8 +3491,8 @@ packages:
     resolution: {integrity: sha512-6i/00NBjP4yGPs+caKSyRfpTF/8Torsu0MOW3mMzIbhgISFder8i7xbqgHlLMwJrdiN8ndBV3UA1/AfzPSr+jg==}
     engines: {node: '>=10.13.0'}
 
-  wative-core@2.5.2:
-    resolution: {integrity: sha512-fqw9szaFnuzURnM7BFJzt0cNqE2Fe4hzOp6JaceMb8CvI+ZNlGJUJzFX4cRNqzqZfKJxvAzN0xim12l+aOEA4g==}
+  wative-core@2.5.3:
+    resolution: {integrity: sha512-tYsKUaqRseUbom8L4PpEksTOu9sbVBCBbLWR9joBohCamISu9RHcVi5UkM37Bk/0pjZZrpZUBTn8CIVTl90z5w==}
     engines: {node: '>=22.12'}
 
   wcwidth@1.0.1:
@@ -7553,7 +7553,7 @@ snapshots:
     dependencies:
       graceful-fs: 4.2.11
 
-  wative-core@2.5.2(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6):
+  wative-core@2.5.3(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6):
     dependencies:
       '@coral-xyz/anchor': 0.30.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@noble/ciphers': 2.2.0
