@@ -5,6 +5,7 @@
   "mappings": {
     "WORKSPACE_LOCKED": { "status": 423, "code": "workspace_locked" },
     "ACCOUNT_LOCKED": { "status": 423, "code": "account_locked" },
+    "WALLET_DISABLED": { "status": 409, "code": "wallet_disabled" },
     "RECORD_LOCKED": { "status": 423, "code": "record_locked" },
     "BAD_PASSWORD": { "status": 401, "code": "bad_password" },
     "WEAK_PASSWORD": { "status": 422, "code": "weak_password" },
@@ -13,6 +14,7 @@
     "PERMISSION_DENIED": { "status": 403, "code": "permission_denied" },
     "DISK_FULL": { "status": 507, "code": "disk_full", "exposeMessage": true, "publicMessage": "storage capacity is unavailable" },
     "PARAMETER_ERROR": { "status": 400, "code": "invalid_parameter" },
+    "DUPLICATE_IDENTITY": { "status": 409, "code": "duplicate_identity" },
     "IRREGULAR_DESTINATION": { "status": 422, "code": "irregular_destination" },
     "DECRYPT_FAILED": { "status": 500, "code": "decrypt_failed" },
     "ENCRYPT_FAILED": { "status": 500, "code": "encrypt_failed" },

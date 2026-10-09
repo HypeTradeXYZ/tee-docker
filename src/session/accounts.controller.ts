@@ -39,6 +39,10 @@ const CreateAccount = z.object({
   hasOwnPassword: z.boolean().optional(),
   /** Required when hasOwnPassword is set; otherwise the flag grants nothing. */
   accountPassword: z.string().min(1).max(256).optional(),
+  /** BIP-39 length for a server-generated HD mnemonic; only valid when `secret` is absent. */
+  wordCount: z.union([
+    z.literal(12), z.literal(15), z.literal(18), z.literal(21), z.literal(24),
+  ]).optional(),
 }).strict();
 
 const DeriveWallets = z.object({ count: z.number().int().positive().max(500) }).strict();
@@ -72,7 +76,7 @@ export class AccountsController {
       throw new TeeError(
         'TEE_INVALID_BODY',
         invalidBodyMessage(
-          'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword? }',
+          'body must be { displayName, kind?, secret?, defaultNetwork?, hasOwnPassword?, accountPassword?, wordCount? }',
           parsed.error,
           body,
         ),

@@ -64,6 +64,15 @@ describe('accounts-sign-export-flow', () => {
       expect(res.body.account.hasOwnPassword).toBe(false);
     });
 
+    it('rejects wordCount together with a supplied secret', async () => {
+      const res = await http()
+        .post('/v1/accounts')
+        .set(bearer())
+        .send({ displayName: 'Contradiction', kind: 'HD', secret: 'provided', wordCount: 24 });
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('invalid_body');
+    });
+
     it('includes defaultNetwork on the account listing and fetch', async () => {
       const list = await http().get('/v1/accounts').set(bearer()).expect(200);
       const account = list.body.accounts[0];
@@ -234,6 +243,19 @@ describe('accounts-sign-export-flow', () => {
 
       const mnemonic = unseal(res.body.sealed, recipient.privateKey);
       expect(mnemonic.split(/\s+/).length).toBeGreaterThanOrEqual(12);
+    });
+
+    it('generates a 24-word mnemonic when wordCount is 24', async () => {
+      const slug = (
+        await http()
+          .post('/v1/accounts')
+          .set(bearer())
+          .send({ displayName: 'Long Seed', kind: 'HD', wordCount: 24 })
+          .expect(201)
+      ).body.account.slug;
+      const t = await inquiryToken({ account: slug });
+      const res = await http().post(`/v1/accounts/${slug}/export`).set(auth(t)).expect(200);
+      expect(unseal(res.body.sealed, recipient.privateKey).split(/\s+/).length).toBe(24);
     });
 
     it('produces a different blob each time — ephemeral sender key', async () => {

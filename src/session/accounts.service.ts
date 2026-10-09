@@ -19,6 +19,8 @@ export interface CreateAccountInput {
   hasOwnPassword?: boolean;
   /** Required when hasOwnPassword is set. */
   accountPassword?: string;
+  /** BIP-39 length for a server-generated HD mnemonic; only valid when `secret` is absent. */
+  wordCount?: 12 | 15 | 18 | 21 | 24;
 }
 
 @Injectable()
@@ -47,6 +49,11 @@ export class AccountsService {
     if (input.hasOwnPassword !== true && input.accountPassword !== undefined) {
       throw new TeeError('TEE_INVALID_BODY', 'accountPassword requires hasOwnPassword');
     }
+    // wordCount sizes a mnemonic the service generates; with a caller-supplied
+    // secret there is nothing to size, so the two together are a contradiction.
+    if (input.wordCount !== undefined && input.secret !== undefined) {
+      throw new TeeError('TEE_INVALID_BODY', 'wordCount applies only to a generated mnemonic');
+    }
 
     return this.mutateWalletIncrease(
       session,
@@ -54,7 +61,7 @@ export class AccountsService {
       1,
       async () => {
         // Generate sensitive entropy only after persisted quota admission.
-        const secret = input.secret ?? newMnemonic();
+        const secret = input.secret ?? newMnemonic(input.wordCount);
         // Always passed explicitly: wative-core defaults it to TRUE, so
         // omitting it would silently give every account its own password and
         // break the session model.

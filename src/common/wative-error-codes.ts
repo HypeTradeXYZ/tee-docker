@@ -1,12 +1,13 @@
 import type { WativeErrorCode } from 'wative-core';
 
 /**
- * Reviewed against wative-core 2.5.3. `satisfies` rejects invented codes and
+ * Reviewed against wative-core 2.5.5. `satisfies` rejects invented codes and
  * the exhaustiveness assertion below makes typecheck fail when core adds one.
  */
 export const WATIVE_ERROR_CODES = [
   'WORKSPACE_LOCKED',
   'ACCOUNT_LOCKED',
+  'WALLET_DISABLED',
   'RECORD_LOCKED',
   'BAD_PASSWORD',
   'WEAK_PASSWORD',
@@ -15,6 +16,7 @@ export const WATIVE_ERROR_CODES = [
   'PERMISSION_DENIED',
   'DISK_FULL',
   'PARAMETER_ERROR',
+  'DUPLICATE_IDENTITY',
   'IRREGULAR_DESTINATION',
   'DECRYPT_FAILED',
   'ENCRYPT_FAILED',
