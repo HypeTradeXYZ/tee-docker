@@ -1,8 +1,11 @@
 import { WativeError } from 'wative-core';
 import { normalizeAccountDisplayName } from '../src/session/account-display-name';
 
-describe('wative-core 2.4.4 account display-name boundary', () => {
+describe('wative-core 2.5.7 account display-name boundary', () => {
   it.each([
+    ['abc', 'abc'],
+    ['  a b  ', 'a b'],
+    ['javascript:abc', 'abc'],
     ['abcd', 'abcd'],
     ['a'.repeat(64), 'a'.repeat(64)],
     ['  alpha    desk  ', 'alpha desk'],
@@ -19,9 +22,7 @@ describe('wative-core 2.4.4 account display-name boundary', () => {
   });
 
   it.each([
-    'abc',
     'a'.repeat(65),
-    '  a b  ',
     '中文中文',
     'абвг',
     'العرب',
@@ -32,7 +33,6 @@ describe('wative-core 2.4.4 account display-name boundary', () => {
     'ßßßß',
     'ÆÆÆÆ',
     'ŁŁŁŁ',
-    'javascript:abc',
   ])('rejects %p with fixed parameter semantics', async (input) => {
     let caught: unknown;
     try {
@@ -43,7 +43,7 @@ describe('wative-core 2.4.4 account display-name boundary', () => {
     expect(caught).toBeInstanceOf(WativeError);
     expect(caught).toMatchObject({
       code: 'PARAMETER_ERROR',
-      message: 'displayName must normalize to 4–64 characters and produce an account slug',
+      message: 'displayName must normalize to 3–64 characters and produce an account slug',
     });
     expect(JSON.stringify(caught)).not.toContain(input);
   });

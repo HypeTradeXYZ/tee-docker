@@ -54,13 +54,13 @@ describe('account-slug-flow', () => {
       .send({ displayName: PK_DISPLAY_NAME, kind: 'PK', secret: privateKey('6') })
       .expect(201);
 
-    expect(firstHd.body.account.slug).toBe('a'.repeat(58));
+    expect(firstHd.body.account.slug).toBe('a'.repeat(26));
     hdSlug = secondHd.body.account.slug as string;
     pkSlug = secondPk.body.account.slug as string;
-    expect(hdSlug).toHaveLength(64);
-    expect(hdSlug).toMatch(/^a{58}-\d{5}$/);
-    expect(pkSlug).toHaveLength(64);
-    expect(pkSlug).toMatch(/^b{58}-\d{5}$/);
+    expect(hdSlug).toHaveLength(32);
+    expect(hdSlug).toMatch(/^a{26}-\d{5}$/);
+    expect(pkSlug).toHaveLength(32);
+    expect(pkSlug).toMatch(/^b{26}-\d{5}$/);
 
     // Close the only lease so the next mint proves the persisted account is
     // still addressable through a genuine core reopen.
@@ -167,7 +167,7 @@ describe('account-slug-flow', () => {
 
   it('rejects an over-limit account path', async () => {
     const response = await http()
-      .get(`/v1/accounts/${'a'.repeat(65)}`)
+      .get(`/v1/accounts/${'a'.repeat(33)}`)
       .set(bearer());
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('invalid_slug');

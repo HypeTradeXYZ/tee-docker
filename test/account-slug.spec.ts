@@ -2,15 +2,15 @@ import { assertValidAccountSlug } from '../src/session/account-slug';
 import { assertValidSlug } from '../src/workspaces/workspace-paths';
 
 describe('account slug validation', () => {
-  const collisionSlug = `${'a'.repeat(58)}-12345`;
+  const collisionSlug = `${'a'.repeat(26)}-12345`;
 
-  it('accepts the full wative-core 2.4.4 collision slug', () => {
-    expect(collisionSlug).toHaveLength(64);
+  it('accepts the full wative-core 2.5.7 collision slug', () => {
+    expect(collisionSlug).toHaveLength(32);
     expect(assertValidAccountSlug(collisionSlug)).toBe(collisionSlug);
   });
 
   it('keeps the filesystem-oriented workspace limit unchanged', () => {
-    expect(() => assertValidSlug(collisionSlug)).toThrow('workspace slug');
+    expect(() => assertValidSlug('a'.repeat(64))).toThrow('workspace slug');
   });
 
   it.each([
@@ -25,7 +25,7 @@ describe('account slug validation', () => {
     'é',
     'a\naccount',
     'a\0account',
-    'a'.repeat(65),
+    'a'.repeat(33),
   ])('rejects invalid account slug %p', (slug) => {
     expect(() => assertValidAccountSlug(slug)).toThrow('account slug');
   });

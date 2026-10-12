@@ -38,6 +38,6 @@ describe('account display-name flow', () => {
     const created = await http().post('/v1/accounts').set(bearer())
       .send({ displayName: raw, kind: 'HD' }).expect(201);
     expect(created.body.account.displayName).toBe('é'.repeat(64));
-    expect(created.body.account.slug).toBe('e'.repeat(58));
+    expect(created.body.account.slug).toBe('e'.repeat(26));
   });
 });

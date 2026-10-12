@@ -122,7 +122,7 @@ The service does not return a newly generated recovery phrase in plain text. Exp
 Unlimited-tier scoped API key carrying a live inquiry key, and the result is sealed to that key — the
 end user's own, which the service never holds.
 
-Account display names are cleaned before use and must be 4–64 characters afterward. The service
+Account display names are cleaned before use and must be 3–64 characters afterward. The service
 returns a lowercase account ID (`slug`) derived from the name; always save and use that returned
 ID, because it may differ from the display name or include a numeric suffix when names collide.
 

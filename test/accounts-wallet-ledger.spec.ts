@@ -34,7 +34,7 @@ const tenant: Tenant = {
 };
 
 describe('account display-name admission', () => {
-  it.each(['abc', '中文中文', '1234', 'a'.repeat(65)])(
+  it.each(['ab', '中文中文', '1234', 'a'.repeat(65)])(
     'rejects %p before quota reservation or core creation',
     async (displayName) => {
       const create = jest.fn();

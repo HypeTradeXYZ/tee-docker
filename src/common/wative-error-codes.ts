@@ -1,7 +1,7 @@
 import type { WativeErrorCode } from 'wative-core';
 
 /**
- * Reviewed against wative-core 2.5.5. `satisfies` rejects invented codes and
+ * Reviewed against wative-core 2.5.7. `satisfies` rejects invented codes and
  * the exhaustiveness assertion below makes typecheck fail when core adds one.
  */
 export const WATIVE_ERROR_CODES = [

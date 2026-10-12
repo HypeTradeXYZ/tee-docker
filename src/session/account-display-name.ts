@@ -1,7 +1,7 @@
 import { Account, type Workspace } from 'wative-core';
 import { teeCoreError } from '../common/tee-error';
 
-const FIXED_ERROR = 'displayName must normalize to 4–64 characters and produce an account slug';
+const FIXED_ERROR = 'displayName must normalize to 3–64 characters and produce an account slug';
 
 /**
  * Apply the pinned core's display-name sanitizer and bounds without touching
